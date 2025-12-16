@@ -55,9 +55,6 @@ application-*.properties
 *.db
 *.sqlite
 
-# Environment variables
-.env
-
 # Build directories
 app/*/build/
 app/*/out/
