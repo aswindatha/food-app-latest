@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -7,7 +8,7 @@ import '../../services/api_service.dart';
 import '../../utils/app_theme.dart';
 
 class AddDonationScreen extends StatefulWidget {
-  const AddDonationScreen({Key? key}) : super(key: key);
+  const AddDonationScreen({super.key});
 
   @override
   State<AddDonationScreen> createState() => _AddDonationScreenState();
@@ -108,7 +109,7 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
         });
 
         // Navigate back to donations tab
-        DefaultTabController.of(context)?.animateTo(0);
+        DefaultTabController.of(context).animateTo(0);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result['error'] ?? 'Failed to create donation')),
@@ -217,14 +218,8 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.file(
-                    // This would need to be adapted for your image handling
-                    // For now, showing a placeholder
-                    Container(
-                      color: Colors.grey[200],
-                      child: const Center(
-                        child: Icon(Icons.image, size: 64, color: Colors.grey),
-                      ),
-                    ),
+                    File(_imageUrl!),
+                    fit: BoxFit.cover,
                   ),
                 ),
                 Positioned(
@@ -293,7 +288,7 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
 
   Widget _buildTypeDropdown() {
     return DropdownButtonFormField<String>(
-      value: _selectedType,
+      initialValue: _selectedType,
       decoration: const InputDecoration(
         labelText: 'Donation Type *',
         border: OutlineInputBorder(),
@@ -336,7 +331,7 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
 
   Widget _buildUnitDropdown() {
     return DropdownButtonFormField<String>(
-      value: _selectedUnit,
+      initialValue: _selectedUnit,
       decoration: const InputDecoration(
         labelText: 'Unit *',
         border: OutlineInputBorder(),

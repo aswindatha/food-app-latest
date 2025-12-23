@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 
 import 'providers/auth_provider.dart';
 import 'screens/auth/login_screen.dart';
@@ -78,12 +76,12 @@ class FoodApp extends StatelessWidget {
       final isAuthenticated = authProvider.isAuthenticated;
       
       // If not authenticated and not on auth pages, redirect to login
-      if (!isAuthenticated && !['/login', '/register', '/splash'].contains(state.location)) {
+      if (!isAuthenticated && !['/login', '/register', '/splash'].contains(state.uri.toString())) {
         return '/login';
       }
       
       // If authenticated and on auth pages, redirect to dashboard
-      if (isAuthenticated && ['/login', '/register', '/splash'].contains(state.location)) {
+      if (isAuthenticated && ['/login', '/register', '/splash'].contains(state.uri.toString())) {
         return '/dashboard';
       }
       

@@ -22,7 +22,8 @@ class AuthProvider extends ChangeNotifier {
       if (isValid) {
         _user = await AuthService.getUser();
         _token = await AuthService.getToken();
-        notifyListeners();
+        // Schedule notification after build cycle
+        Future.microtask(() => notifyListeners());
       }
     } catch (e) {
       _setError('Failed to initialize authentication');
@@ -120,18 +121,18 @@ class AuthProvider extends ChangeNotifier {
   // Clear error
   void clearError() {
     _clearError();
-    notifyListeners();
+    Future.microtask(() => notifyListeners());
   }
 
   // Private methods
   void _setLoading(bool loading) {
     _isLoading = loading;
-    notifyListeners();
+    Future.microtask(() => notifyListeners());
   }
 
   void _setError(String error) {
     _error = error;
-    notifyListeners();
+    Future.microtask(() => notifyListeners());
   }
 
   void _clearError() {

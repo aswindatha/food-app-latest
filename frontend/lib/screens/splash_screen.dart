@@ -109,7 +109,7 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
             ).animate()
               .fadeIn(duration: 800.ms, delay: 800.ms)
-              .rotate(duration: 2000.ms, infinite: true),
+              .rotate(duration: 2000.ms),
           ],
         ),
       ),

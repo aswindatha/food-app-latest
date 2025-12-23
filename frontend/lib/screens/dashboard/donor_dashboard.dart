@@ -77,7 +77,7 @@ class DonorDashboard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
+                    gradient: const LinearGradient(
                       colors: [AppTheme.primaryColor, AppTheme.primaryDarkColor],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -345,7 +345,7 @@ class DonorDashboard extends StatelessWidget {
                 ),
                 Text(
                   description,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: AppTheme.textSecondaryColor,
                     fontSize: 14,
                   ),
@@ -355,7 +355,7 @@ class DonorDashboard extends StatelessWidget {
           ),
           Text(
             time,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppTheme.textSecondaryColor,
               fontSize: 12,
             ),

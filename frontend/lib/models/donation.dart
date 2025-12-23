@@ -1,3 +1,5 @@
+import 'user.dart';
+
 class Donation {
   final int id;
   final int donorId;
@@ -43,22 +45,22 @@ class Donation {
 
   factory Donation.fromJson(Map<String, dynamic> json) {
     return Donation(
-      id: json['id'],
-      donorId: json['donor_id'],
-      title: json['title'],
+      id: json['id'] ?? 0,
+      donorId: json['donor_id'] ?? 0,
+      title: json['title'] ?? '',
       description: json['description'] ?? '',
-      donationType: json['donation_type'],
-      quantity: json['quantity'],
-      unit: json['unit'],
-      expiryDate: DateTime.parse(json['expiry_date']),
-      pickupAddress: json['pickup_address'],
+      donationType: json['donation_type'] ?? '',
+      quantity: json['quantity'] ?? 0,
+      unit: json['unit'] ?? '',
+      expiryDate: DateTime.parse(json['expiry_date'] ?? DateTime.now().toIso8601String()),
+      pickupAddress: json['pickup_address'] ?? '',
       pickupTime: json['pickup_time'] != null ? DateTime.parse(json['pickup_time']) : null,
-      status: json['status'],
+      status: json['status'] ?? '',
       volunteerId: json['volunteer_id'],
       organizationId: json['organization_id'],
       imageUrl: json['image_url'],
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
+      createdAt: DateTime.parse(json['created_at'] ?? DateTime.now().toIso8601String()),
+      updatedAt: DateTime.parse(json['updated_at'] ?? DateTime.now().toIso8601String()),
       donor: json['donor'] != null ? User.fromJson(json['donor']) : null,
       volunteer: json['volunteer'] != null ? User.fromJson(json['volunteer']) : null,
       organization: json['organization'] != null ? User.fromJson(json['organization']) : null,
@@ -130,14 +132,15 @@ class Donation {
     );
   }
 
-  bool get isEditable => status == 'current';
+  bool get isEditable => status == 'available' || status == 'current';
   bool get isExpired => status == 'expired';
   bool get isDonated => status == 'donated';
-  bool get isCurrent => status == 'current';
+  bool get isCurrent => status == 'available' || status == 'current';
 
   String get statusDisplay {
     switch (status) {
       case 'current':
+      case 'available':
         return 'Available';
       case 'donated':
         return 'Donated';

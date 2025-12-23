@@ -3,7 +3,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/conversation.dart';
-import '../../models/message.dart';
 import '../../models/user.dart';
 import '../../services/api_service.dart';
 import '../../utils/app_theme.dart';
@@ -12,7 +11,7 @@ import 'conversation_detail_screen.dart';
 class ChatScreen extends StatefulWidget {
   final VoidCallback? onRefresh;
 
-  const ChatScreen({Key? key, this.onRefresh}) : super(key: key);
+  const ChatScreen({super.key, this.onRefresh});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -119,7 +118,7 @@ class _ChatScreenState extends State<ChatScreen> {
               children: [
                 // Role filter
                 DropdownButtonFormField<String>(
-                  value: _selectedRole,
+                  initialValue: _selectedRole,
                   decoration: const InputDecoration(
                     labelText: 'Filter by Role',
                     border: OutlineInputBorder(),

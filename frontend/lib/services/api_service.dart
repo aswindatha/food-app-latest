@@ -160,10 +160,19 @@ class ApiService {
 
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body);
-        return {
-          'success': true,
-          'donation': Donation.fromJson(data),
-        };
+        try {
+          return {
+            'success': true,
+            'donation': Donation.fromJson(data),
+          };
+        } catch (e) {
+          debugPrint('Error parsing donation: $e');
+          debugPrint('Response data: $data');
+          return {
+            'success': false,
+            'error': 'Failed to parse donation response: $e',
+          };
+        }
       } else {
         final errorData = jsonDecode(response.body);
         return {
@@ -192,7 +201,20 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as List;
-        final donations = data.map((item) => Donation.fromJson(item)).toList();
+        final donations = <Donation>[];
+        
+        for (final item in data) {
+          try {
+            donations.add(Donation.fromJson(item));
+          } catch (e) {
+            debugPrint('Error parsing donation item: $e');
+            debugPrint('Donation data: $item');
+            // Continue with other items even if one fails
+          }
+        }
+        
+        debugPrint('Successfully parsed ${donations.length} out of ${data.length} donations');
+        
         return {
           'success': true,
           'donations': donations,

@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../models/donation.dart';
 import '../../services/api_service.dart';
+import '../../services/auth_service.dart';
 import '../../utils/app_theme.dart';
 
 class EditDonationScreen extends StatefulWidget {
   final Donation donation;
 
-  const EditDonationScreen({Key? key, required this.donation}) : super(key: key);
+  const EditDonationScreen({super.key, required this.donation});
 
   @override
   State<EditDonationScreen> createState() => _EditDonationScreenState();
@@ -66,6 +67,13 @@ class _EditDonationScreenState extends State<EditDonationScreen> {
     try {
       final token = await _getToken();
       
+      if (token == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Authentication required. Please login again.')),
+        );
+        return;
+      }
+      
       final donationData = {
         'title': _titleController.text.trim(),
         'description': _descriptionController.text.trim(),
@@ -105,10 +113,8 @@ class _EditDonationScreenState extends State<EditDonationScreen> {
     }
   }
 
-  Future<String> _getToken() async {
-    // This should come from your auth provider
-    // For now, returning a placeholder - replace with actual implementation
-    return 'your_token_here';
+  Future<String?> _getToken() async {
+    return await AuthService.getToken();
   }
 
   @override
@@ -215,7 +221,7 @@ class _EditDonationScreenState extends State<EditDonationScreen> {
 
   Widget _buildTypeDropdown() {
     return DropdownButtonFormField<String>(
-      value: _selectedType,
+      initialValue: _selectedType,
       decoration: const InputDecoration(
         labelText: 'Donation Type *',
         border: OutlineInputBorder(),
@@ -258,7 +264,7 @@ class _EditDonationScreenState extends State<EditDonationScreen> {
 
   Widget _buildUnitDropdown() {
     return DropdownButtonFormField<String>(
-      value: _selectedUnit,
+      initialValue: _selectedUnit,
       decoration: const InputDecoration(
         labelText: 'Unit *',
         border: OutlineInputBorder(),

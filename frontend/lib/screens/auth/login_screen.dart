@@ -258,7 +258,7 @@ class _LoginScreenState extends State<LoginScreen> {
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         children: [
-          Icon(
+          const Icon(
             Icons.account_circle,
             size: 16,
             color: AppTheme.textSecondaryColor,

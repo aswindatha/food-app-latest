@@ -1,5 +1,4 @@
 import 'user.dart';
-import 'message.dart';
 
 class Conversation {
   final int id;

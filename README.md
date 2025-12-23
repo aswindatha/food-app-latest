@@ -5,8 +5,7 @@ A platform connecting food donors with volunteers and organizations to reduce fo
 ## Prerequisites
 
 - Node.js 16+ and npm 8+
-- Java 17 or later
-- PostgreSQL 13+
+- MySQL 8.0+
 
 ## Getting Started
 
@@ -18,53 +17,97 @@ A platform connecting food donors with volunteers and organizations to reduce fo
 
 2. **Install dependencies**
    ```bash
-   npm run install:all
+   # Backend dependencies
+   cd backend
+   npm install
+   
+   # Frontend dependencies (if applicable)
+   cd ../frontend
+   npm install
    ```
 
 3. **Set up the database**
-   - Create a PostgreSQL database named `food_app`
-   - Update database configuration in `application.properties`
+   - Create a MySQL database named `food_app`
+   - The backend is configured to use MySQL with:
+     - Host: localhost
+     - Port: 3306
+     - User: root
+     - Password: root
 
 4. **Start the application**
    ```bash
-   # Start both frontend and backend
-   npm start
+   # Start backend server
+   cd backend
+   npm run dev
    
-   # Or start them separately
-   npm run start:backend
-   npm run start:frontend
+   # Start frontend (if applicable)
+   cd ../frontend
+   npm start
    ```
 
 ## Project Structure
 
-- `/app` - Main application code
-  - `/login-and-registration` - Authentication module
-    - `/login-and-registration-ui` - React frontend
-    - `/login-and-registration-backend` - Spring Boot backend
-  - `/donor` - Donor module (future)
-  - `/volunteer` - Volunteer module (future)
-  - `/organization` - Organization module (future)
+- `/backend` - Node.js/Express backend API
+  - `/src` - Source code
+    - `/config` - Database configuration
+    - `/controllers` - API controllers
+    - `/models` - Database models
+    - `/routes` - API routes
+    - `/middleware` - Authentication middleware
+  - `/test` - Test files
+- `/frontend` - React frontend (if applicable)
+
+## API Documentation
+
+Comprehensive API documentation is available at `backend/api.md`. It includes:
+
+- **Authentication Endpoints**: Register, Login, User Profile
+- **Donation Endpoints**: CRUD operations, volunteer assignment
+- **Organization Endpoints**: Claim donations, manage volunteers
+- **Volunteer Endpoints**: Handle requests, manage assignments
+- **Conversation Endpoints**: Messaging system
+
+Each endpoint includes request/response payloads, UI integration details, and business logic flow.
 
 ## Available Scripts
 
-- `npm start` - Start both frontend and backend
-- `npm run start:frontend` - Start the frontend development server
-- `npm run start:backend` - Start the backend server
-- `npm run build` - Build the frontend for production
+### Backend
+- `npm start` - Start production server
+- `npm run dev` - Start development server with nodemon
+- `npm test` - Run tests
+- `npm run test:watch` - Run tests in watch mode
+- `npm run migrate` - Run database migrations
+
+### Frontend (if applicable)
+- `npm start` - Start development server
+- `npm run build` - Build for production
 
 ## Environment Variables
 
-Create a `.env` file in the root directory with the following variables:
+Create a `.env` file in the backend directory with the following variables:
 
 ```env
-# Database
-DB_URL=jdbc:postgresql://localhost:5432/food_app
-DB_USERNAME=user
-DB_PASSWORD=password
+# Database (MySQL)
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=food_app
+DB_USER=root
+DB_PASS=root
 
 # JWT Secret (generate a secure secret for production)
 JWT_SECRET=your-secret-key
+
+# Server
+PORT=5000
+NODE_ENV=development
 ```
+
+## Database Migration
+
+The application has been migrated from PostgreSQL to MySQL. Key changes:
+- Database driver changed from `pg` to `mysql2`
+- Default port changed from 5432 to 3306
+- Configuration updated in `src/config/db.js`
 
 ## License
 

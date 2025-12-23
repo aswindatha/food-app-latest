@@ -338,21 +338,21 @@ class VolunteerDashboard extends StatelessWidget {
           Text(description),
           Row(
             children: [
-              Icon(Icons.location_on, size: 14, color: AppTheme.textSecondaryColor),
+              const Icon(Icons.location_on, size: 14, color: AppTheme.textSecondaryColor),
               const SizedBox(width: 4),
               Text(
                 location,
-                style: TextStyle(
+                style: const TextStyle(
                   color: AppTheme.textSecondaryColor,
                   fontSize: 12,
                 ),
               ),
               const SizedBox(width: 12),
-              Icon(Icons.access_time, size: 14, color: AppTheme.textSecondaryColor),
+              const Icon(Icons.access_time, size: 14, color: AppTheme.textSecondaryColor),
               const SizedBox(width: 4),
               Text(
                 time,
-                style: TextStyle(
+                style: const TextStyle(
                   color: AppTheme.textSecondaryColor,
                   fontSize: 12,
                 ),

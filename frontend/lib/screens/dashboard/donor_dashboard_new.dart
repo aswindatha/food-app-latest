@@ -4,8 +4,6 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/donation.dart';
 import '../../models/conversation.dart';
-import '../../models/message.dart';
-import '../../models/user.dart';
 import '../../services/api_service.dart';
 import '../../utils/app_theme.dart';
 import 'add_donation_screen.dart';
@@ -13,7 +11,7 @@ import 'chat_screen.dart';
 import 'edit_donation_screen.dart';
 
 class DonorDashboardNew extends StatefulWidget {
-  const DonorDashboardNew({Key? key}) : super(key: key);
+  const DonorDashboardNew({super.key});
 
   @override
   State<DonorDashboardNew> createState() => _DonorDashboardNewState();

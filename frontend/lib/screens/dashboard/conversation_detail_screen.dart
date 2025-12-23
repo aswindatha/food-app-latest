@@ -12,10 +12,10 @@ class ConversationDetailScreen extends StatefulWidget {
   final VoidCallback? onMessageSent;
 
   const ConversationDetailScreen({
-    Key? key,
+    super.key,
     required this.conversation,
     this.onMessageSent,
-  }) : super(key: key);
+  });
 
   @override
   State<ConversationDetailScreen> createState() => _ConversationDetailScreenState();
