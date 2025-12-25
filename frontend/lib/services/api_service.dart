@@ -5,6 +5,7 @@ import '../models/user.dart';
 import '../models/donation.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
+import '../models/volunteer_request.dart';
 
 class ApiService {
   static const String baseUrl = 'http://localhost:5000/api';
@@ -299,6 +300,383 @@ class ApiService {
       }
     } catch (e) {
       debugPrint('Delete donation error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  // ========== ORGANIZATION DONATION APIS ==========
+
+  static Future<Map<String, dynamic>> getOrganizationAvailableDonations(String token) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/organization/donations/available'),
+        headers: _getHeaders(token: token),
+      );
+
+      debugPrint('Get organization available donations response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List;
+        final donations = <Donation>[];
+
+        for (final item in data) {
+          try {
+            donations.add(Donation.fromJson(item));
+          } catch (e) {
+            debugPrint('Error parsing donation item: $e');
+            debugPrint('Donation data: $item');
+          }
+        }
+
+        return {
+          'success': true,
+          'donations': donations,
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'error': errorData['message'] ?? 'Failed to get available donations',
+      };
+    } catch (e) {
+      debugPrint('Get organization available donations error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> getOrganizationClaimedDonations(String token) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/organization/donations/claimed'),
+        headers: _getHeaders(token: token),
+      );
+
+      debugPrint('Get organization claimed donations response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List;
+        final donations = <Donation>[];
+
+        for (final item in data) {
+          try {
+            donations.add(Donation.fromJson(item));
+          } catch (e) {
+            debugPrint('Error parsing donation item: $e');
+            debugPrint('Donation data: $item');
+          }
+        }
+
+        return {
+          'success': true,
+          'donations': donations,
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'error': errorData['message'] ?? 'Failed to get claimed donations',
+      };
+    } catch (e) {
+      debugPrint('Get organization claimed donations error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> claimOrganizationDonation({
+    required String token,
+    required int donationId,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/organization/donations/$donationId/claim'),
+        headers: _getHeaders(token: token),
+      );
+
+      debugPrint('Claim organization donation response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final donationJson = data['donation'];
+        return {
+          'success': true,
+          'donation': donationJson != null ? Donation.fromJson(donationJson) : null,
+          'conversation': data['conversation'],
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'error': errorData['message'] ?? 'Failed to claim donation',
+      };
+    } catch (e) {
+      debugPrint('Claim organization donation error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> requestVolunteerForDonation({
+    required String token,
+    required int donationId,
+    required int volunteerId,
+    String? message,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/organization/donations/$donationId/request-volunteer'),
+        headers: _getHeaders(token: token),
+        body: jsonEncode({
+          'volunteer_id': volunteerId,
+          if (message != null) 'message': message,
+        }),
+      );
+
+      debugPrint('Request volunteer response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'request': data['request'],
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'error': errorData['message'] ?? 'Failed to request volunteer',
+      };
+    } catch (e) {
+      debugPrint('Request volunteer error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateOrganizationDonationStatus({
+    required String token,
+    required int donationId,
+    required String status,
+  }) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/organization/donations/$donationId/status'),
+        headers: _getHeaders(token: token),
+        body: jsonEncode({'status': status}),
+      );
+
+      debugPrint('Update organization donation status response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final donationJson = data['donation'];
+        return {
+          'success': true,
+          'donation': donationJson != null ? Donation.fromJson(donationJson) : null,
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'error': errorData['message'] ?? 'Failed to update donation status',
+      };
+    } catch (e) {
+      debugPrint('Update organization donation status error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  // ========== VOLUNTEER APIS ==========
+
+  static Future<Map<String, dynamic>> getVolunteerRequests({
+    required String token,
+    String? status,
+  }) async {
+    try {
+      String url = '$baseUrl/volunteer/requests';
+      if (status != null) {
+        url += '?status=$status';
+      }
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: _getHeaders(token: token),
+      );
+
+      debugPrint('Get volunteer requests response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List;
+        final requests = <VolunteerRequest>[];
+
+        for (final item in data) {
+          try {
+            requests.add(VolunteerRequest.fromJson(item));
+          } catch (e) {
+            debugPrint('Error parsing volunteer request item: $e');
+            debugPrint('Volunteer request data: $item');
+          }
+        }
+
+        return {
+          'success': true,
+          'requests': requests,
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'error': errorData['message'] ?? 'Failed to get volunteer requests',
+      };
+    } catch (e) {
+      debugPrint('Get volunteer requests error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> respondToVolunteerRequest({
+    required String token,
+    required int requestId,
+    required String status,
+    String? message,
+  }) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/volunteer/requests/$requestId/respond'),
+        headers: _getHeaders(token: token),
+        body: jsonEncode({
+          'status': status,
+          if (message != null) 'message': message,
+        }),
+      );
+
+      debugPrint('Respond to volunteer request response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'request': data['request'] != null ? VolunteerRequest.fromJson(data['request']) : null,
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'error': errorData['message'] ?? 'Failed to respond to request',
+      };
+    } catch (e) {
+      debugPrint('Respond to volunteer request error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> getVolunteerAssignedDonations({
+    required String token,
+    String? status,
+  }) async {
+    try {
+      String url = '$baseUrl/volunteer/donations/assigned';
+      if (status != null) {
+        url += '?status=$status';
+      }
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: _getHeaders(token: token),
+      );
+
+      debugPrint('Get volunteer assigned donations response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List;
+        final donations = <Donation>[];
+
+        for (final item in data) {
+          try {
+            donations.add(Donation.fromJson(item));
+          } catch (e) {
+            debugPrint('Error parsing assigned donation item: $e');
+            debugPrint('Assigned donation data: $item');
+          }
+        }
+
+        return {
+          'success': true,
+          'donations': donations,
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'error': errorData['message'] ?? 'Failed to get assigned donations',
+      };
+    } catch (e) {
+      debugPrint('Get volunteer assigned donations error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> volunteerUpdateDonationStatus({
+    required String token,
+    required int donationId,
+    required String status,
+  }) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/volunteer/donations/$donationId/status'),
+        headers: _getHeaders(token: token),
+        body: jsonEncode({'status': status}),
+      );
+
+      debugPrint('Volunteer update donation status response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'donation': data['donation'] != null ? Donation.fromJson(data['donation']) : null,
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'error': errorData['message'] ?? 'Failed to update donation status',
+      };
+    } catch (e) {
+      debugPrint('Volunteer update donation status error: $e');
       return {
         'success': false,
         'error': 'Network error. Please check your connection.',

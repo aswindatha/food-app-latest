@@ -1,447 +1,761 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../../providers/auth_provider.dart';
-import '../../utils/app_theme.dart';
 
-class OrganizationDashboard extends StatelessWidget {
+import '../../models/donation.dart';
+import '../../models/user.dart';
+import '../../providers/auth_provider.dart';
+import '../../services/api_service.dart';
+import '../../utils/app_theme.dart';
+import 'chat_screen.dart';
+import 'conversation_detail_screen.dart';
+
+class OrganizationDashboard extends StatefulWidget {
   const OrganizationDashboard({super.key});
 
   @override
+  State<OrganizationDashboard> createState() => _OrganizationDashboardState();
+}
+
+class _OrganizationDashboardState extends State<OrganizationDashboard>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  List<Donation> _availableDonations = [];
+  List<Donation> _claimedDonations = [];
+  bool _isLoading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = authProvider.token;
+
+      if (token == null) {
+        setState(() {
+          _isLoading = false;
+          _error = 'Not authenticated';
+        });
+        return;
+      }
+
+      final results = await Future.wait([
+        ApiService.getOrganizationAvailableDonations(token),
+        ApiService.getOrganizationClaimedDonations(token),
+      ]);
+
+      final availableResult = results[0];
+      final claimedResult = results[1];
+
+      if (availableResult['success'] == true && claimedResult['success'] == true) {
+        setState(() {
+          _availableDonations = (availableResult['donations'] as List<Donation>);
+          _claimedDonations = (claimedResult['donations'] as List<Donation>);
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _isLoading = false;
+          _error = availableResult['error'] ?? claimedResult['error'] ?? 'Failed to load data';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _error = 'An unexpected error occurred';
+      });
+    }
+  }
+
+  Future<void> _claimDonation(Donation donation) async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = authProvider.token;
+      if (token == null) return;
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Claim Donation'),
+          content: Text('Do you want to claim "${donation.title}"?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+              child: const Text('Claim'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+
+      final result = await ApiService.claimOrganizationDonation(
+        token: token,
+        donationId: donation.id,
+      );
+
+      if (result['success'] == true) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Donation claimed successfully')),
+        );
+        await _loadData();
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['error'] ?? 'Failed to claim donation')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('An error occurred')),
+        );
+      }
+    }
+  }
+
+  Future<void> _requestVolunteer(Donation donation) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final token = authProvider.token;
+    if (token == null) return;
+
+    try {
+      final usersResult = await ApiService.getAvailableUsers(token: token, role: 'volunteer');
+      if (usersResult['success'] != true) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(usersResult['error'] ?? 'Failed to load volunteers')),
+        );
+        return;
+      }
+
+      final volunteers = (usersResult['users'] as List<User>);
+      if (!mounted) return;
+
+      final selectedVolunteer = await showDialog<User?>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Select Volunteer'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 420,
+            child: volunteers.isEmpty
+                ? const Center(child: Text('No volunteers available'))
+                : ListView.builder(
+                    itemCount: volunteers.length,
+                    itemBuilder: (context, index) {
+                      final v = volunteers[index];
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppTheme.primaryColor,
+                          child: Text(
+                            '${v.firstName[0]}${v.lastName[0]}',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                        title: Text('${v.firstName} ${v.lastName}'),
+                        subtitle: Text(v.roleDisplay),
+                        onTap: () => Navigator.pop(context, v),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+
+      if (selectedVolunteer == null) return;
+
+      final result = await ApiService.requestVolunteerForDonation(
+        token: token,
+        donationId: donation.id,
+        volunteerId: selectedVolunteer.id,
+      );
+
+      if (!mounted) return;
+
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Volunteer request sent')),
+        );
+        await _loadData();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['error'] ?? 'Failed to request volunteer')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('An error occurred')),
+      );
+    }
+  }
+
+  Future<void> _chatWithVolunteer(User volunteer) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final token = authProvider.token;
+    if (token == null) return;
+
+    try {
+      final result = await ApiService.createConversation(
+        token: token,
+        participant2Id: volunteer.id,
+        participant2Type: 'volunteer',
+      );
+
+      if (!mounted) return;
+
+      if (result['success'] == true) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ConversationDetailScreen(
+              conversation: result['conversation'],
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['error'] ?? 'Failed to start chat')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('An error occurred')),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context);
+    final user = authProvider.user;
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
-        title: const Text('Organization Dashboard'),
+        title: Text('Welcome, ${user?.firstName ?? 'Organization'}!'),
+        backgroundColor: AppTheme.primaryColor,
+        foregroundColor: Colors.white,
+        elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Notifications coming soon!')),
-              );
-            },
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadData,
           ),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'logout') {
-                context.read<AuthProvider>().logout();
-                context.go('/login');
+                authProvider.logout();
               }
             },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'profile',
-                child: Row(
-                  children: [
-                    Icon(Icons.business),
-                    SizedBox(width: 8),
-                    Text('Organization Profile'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'settings',
-                child: Row(
-                  children: [
-                    Icon(Icons.settings),
-                    SizedBox(width: 8),
-                    Text('Settings'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
+            itemBuilder: (context) => const [
+              PopupMenuItem(
                 value: 'logout',
-                child: Row(
-                  children: [
-                    Icon(Icons.logout),
-                    SizedBox(width: 8),
-                    Text('Logout'),
-                  ],
-                ),
+                child: Text('Logout'),
               ),
             ],
           ),
         ],
       ),
-      body: Consumer<AuthProvider>(
-        builder: (context, authProvider, child) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Welcome section
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Colors.purple, Colors.deepPurple],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.purple.withOpacity(0.3),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 30,
-                            backgroundColor: Colors.white.withOpacity(0.2),
-                            child: const Icon(
-                              Icons.business,
-                              size: 30,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Organization Portal',
-                                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                    color: Colors.white70,
-                                  ),
-                                ),
-                                Text(
-                                  authProvider.user?.fullName ?? 'Organization',
-                                  style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Managing food distribution and coordinating efforts to serve our community better.',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
-                        ),
-                      ),
-                    ],
-                  ),
-                ).animate().slideY(begin: 0.3, duration: 600.ms).fadeIn(),
-                
-                const SizedBox(height: 30),
-                
-                // Impact Stats
-                Text(
-                  'Organization Impact',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ).animate().fadeIn(duration: 600.ms, delay: 200.ms),
-                
-                const SizedBox(height: 16),
-                
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  childAspectRatio: 1.5,
-                  children: [
-                    _buildImpactCard(
-                      context,
-                      'Total Donations',
-                      '1,234',
-                      Icons.inventory,
-                      AppTheme.primaryColor,
-                    ).animate().scale(duration: 600.ms, delay: 300.ms),
-                    _buildImpactCard(
-                      context,
-                      'Families Helped',
-                      '567',
-                      Icons.family_restroom,
-                      AppTheme.secondaryColor,
-                    ).animate().scale(duration: 600.ms, delay: 400.ms),
-                    _buildImpactCard(
-                      context,
-                      'Active Volunteers',
-                      '89',
-                      Icons.people,
-                      AppTheme.accentColor,
-                    ).animate().scale(duration: 600.ms, delay: 500.ms),
-                    _buildImpactCard(
-                      context,
-                      'Partner Organizations',
-                      '23',
-                      Icons.handshake,
-                      Colors.purple,
-                    ).animate().scale(duration: 600.ms, delay: 600.ms),
-                  ],
-                ),
-                
-                const SizedBox(height: 30),
-                
-                // Management Tools
-                Text(
-                  'Management Tools',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ).animate().fadeIn(duration: 600.ms, delay: 700.ms),
-                
-                const SizedBox(height: 16),
-                
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  childAspectRatio: 1.2,
-                  children: [
-                    _buildToolCard(
-                      context,
-                      'Donation Management',
-                      Icons.inventory_2,
-                      AppTheme.primaryColor,
-                      () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Donation management coming soon!')),
-                        );
-                      },
-                    ).animate().scale(duration: 600.ms, delay: 800.ms),
-                    _buildToolCard(
-                      context,
-                      'Volunteer Coordination',
-                      Icons.group_work,
-                      AppTheme.accentColor,
-                      () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Volunteer coordination coming soon!')),
-                        );
-                      },
-                    ).animate().scale(duration: 600.ms, delay: 900.ms),
-                    _buildToolCard(
-                      context,
-                      'Distribution Tracking',
-                      Icons.local_shipping,
-                      AppTheme.secondaryColor,
-                      () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Distribution tracking coming soon!')),
-                        );
-                      },
-                    ).animate().scale(duration: 600.ms, delay: 1000.ms),
-                    _buildToolCard(
-                      context,
-                      'Reports & Analytics',
-                      Icons.analytics,
-                      Colors.purple,
-                      () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Reports & analytics coming soon!')),
-                        );
-                      },
-                    ).animate().scale(duration: 600.ms, delay: 1100.ms),
-                  ],
-                ),
-                
-                const SizedBox(height: 30),
-                
-                // Recent Activities
-                Text(
-                  'Recent Activities',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ).animate().fadeIn(duration: 600.ms, delay: 1200.ms),
-                
-                const SizedBox(height: 16),
-                
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        _buildActivityItem(
-                          'New Donation Received',
-                          'Fresh produce from local farm',
-                          '1 hour ago',
-                          Icons.inventory,
-                          AppTheme.primaryColor,
-                        ),
-                        const Divider(),
-                        _buildActivityItem(
-                          'Volunteer Assignment',
-                          '12 volunteers assigned for weekend pickup',
-                          '3 hours ago',
-                          Icons.people,
-                          AppTheme.accentColor,
-                        ),
-                        const Divider(),
-                        _buildActivityItem(
-                          'Distribution Complete',
-                          'Food delivered to 45 families',
-                          '1 day ago',
-                          Icons.check_circle,
-                          AppTheme.successColor,
-                        ),
-                        const Divider(),
-                        _buildActivityItem(
-                          'Partner Meeting',
-                          'Meeting with local supermarket chain',
-                          '2 days ago',
-                          Icons.handshake,
-                          Colors.purple,
-                        ),
-                      ],
-                    ),
-                  ),
-                ).animate().slideY(begin: 0.3, duration: 600.ms, delay: 1300.ms),
+      body: Column(
+        children: [
+          Container(
+            color: AppTheme.primaryColor,
+            child: TabBar(
+              controller: _tabController,
+              indicatorColor: Colors.white,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
+              tabs: const [
+                Tab(icon: Icon(Icons.list), text: 'Available Donations'),
+                Tab(icon: Icon(Icons.inventory), text: 'Claimed Donations'),
+                Tab(icon: Icon(Icons.chat), text: 'Chat'),
               ],
             ),
-          );
-        },
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildAvailableDonationsTab(),
+                _buildClaimedDonationsTab(),
+                ChatScreen(onRefresh: _loadData),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildImpactCard(
-    BuildContext context,
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+  Widget _buildAvailableDonationsTab() {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppTheme.primaryColor),
+      );
+    }
+
+    if (_error != null) {
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: 32,
-              color: color,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.center,
+            Icon(Icons.error, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(_error!, style: const TextStyle(fontSize: 16)),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadData,
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+              child: const Text('Retry'),
             ),
           ],
         ),
-      ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: _availableDonations.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.inventory_outlined,
+                    size: 64,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No available donations',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _availableDonations.length,
+              itemBuilder: (context, index) {
+                final donation = _availableDonations[index];
+                return _buildDonationCard(
+                  donation,
+                  isClaimed: false,
+                  onClaim: () => _claimDonation(donation),
+                );
+              },
+            ),
     );
   }
 
-  Widget _buildToolCard(
-    BuildContext context,
-    String title,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-  ) {
+  Widget _buildClaimedDonationsTab() {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppTheme.primaryColor),
+      );
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(_error!, style: const TextStyle(fontSize: 16)),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadData,
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: _claimedDonations.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.inventory_2_outlined,
+                    size: 64,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No claimed donations',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : _buildClaimedGroupedList(),
+    );
+  }
+
+  Widget _buildClaimedGroupedList() {
+    final transporting = _claimedDonations.where((d) => d.status == 'in_transit').toList();
+    final others = _claimedDonations.where((d) => d.status != 'in_transit').toList();
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (transporting.isNotEmpty) ...[
+          _buildSectionHeader('Currently Transporting', Colors.orange),
+          const SizedBox(height: 12),
+          ...transporting.map((d) => _buildClaimedDonationCard(d, isTransporting: true)),
+          const SizedBox(height: 24),
+        ],
+        if (others.isNotEmpty) ...[
+          _buildSectionHeader('Other Claimed Donations', Colors.green.shade800),
+          const SizedBox(height: 12),
+          ...others.map((d) => _buildClaimedDonationCard(d, isTransporting: false)),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSectionHeader(String title, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 20,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    ).animate().fadeIn().slideX();
+  }
+
+  Widget _buildClaimedDonationCard(Donation donation, {required bool isTransporting}) {
+    final borderColor = isTransporting ? Colors.orange : Colors.green.shade800;
+    final tintColor = isTransporting ? Colors.orange.withOpacity(0.06) : Colors.green.shade900.withOpacity(0.06);
+
     return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: borderColor.withOpacity(0.6), width: 2),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showClaimedDonationDialog(donation, isTransporting: isTransporting),
+        borderRadius: BorderRadius.circular(8),
         child: Container(
+          decoration: BoxDecoration(
+            color: tintColor,
+            borderRadius: BorderRadius.circular(8),
+          ),
           padding: const EdgeInsets.all(16),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  icon,
-                  size: 32,
-                  color: color,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      donation.title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green.shade900,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: borderColor,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      donation.status,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium,
-                textAlign: TextAlign.center,
+                '${donation.typeDisplay} • ${donation.quantity} ${donation.unit}',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.green.shade800,
+                ),
               ),
             ],
           ),
         ),
       ),
+    ).animate().fadeIn().slideY();
+  }
+
+  void _showClaimedDonationDialog(Donation donation, {required bool isTransporting}) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(donation.title),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Type: ${donation.typeDisplay}'),
+                const SizedBox(height: 8),
+                Text('Quantity: ${donation.quantity} ${donation.unit}'),
+                const SizedBox(height: 8),
+                Text('Status: ${donation.status}'),
+                const SizedBox(height: 8),
+                Text('Pickup Address: ${donation.pickupAddress}'),
+                const SizedBox(height: 8),
+                Text('Expires: ${donation.expiryDate.day}/${donation.expiryDate.month}/${donation.expiryDate.year}'),
+                if (isTransporting) ...[
+                  const SizedBox(height: 16),
+                  if (donation.volunteer != null) ...[
+                    Text('Volunteer: ${donation.volunteer!.firstName} ${donation.volunteer!.lastName}'),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _chatWithVolunteer(donation.volunteer!);
+                        },
+                        icon: const Icon(Icons.chat),
+                        label: const Text('Chat with Volunteer'),
+                        style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+                      ),
+                    ),
+                  ] else ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _requestVolunteer(donation);
+                        },
+                        icon: const Icon(Icons.volunteer_activism),
+                        label: const Text('Request Volunteer'),
+                      ),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildActivityItem(
-    String title,
-    String description,
-    String time,
-    IconData icon,
-    Color color,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              icon,
-              size: 20,
-              color: color,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildDonationCard(
+    Donation donation, {
+    required bool isClaimed,
+    VoidCallback? onClaim,
+    VoidCallback? onRequestVolunteer,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isClaimed
+                        ? Colors.green.withOpacity(0.1)
+                        : AppTheme.primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    donation.typeDisplay,
+                    style: TextStyle(
+                      color: isClaimed ? Colors.green : AppTheme.primaryColor,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
+                const Spacer(),
                 Text(
-                  description,
+                  donation.quantity.toString(),
                   style: const TextStyle(
-                    color: AppTheme.textSecondaryColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  donation.unit,
+                  style: TextStyle(
+                    color: Colors.grey[600],
                     fontSize: 14,
                   ),
                 ),
               ],
             ),
-          ),
-          Text(
-            time,
-            style: const TextStyle(
-              color: AppTheme.textSecondaryColor,
-              fontSize: 12,
+            const SizedBox(height: 12),
+            Text(
+              donation.title,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              donation.description,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  Icons.access_time,
+                  size: 16,
+                  color: Colors.grey[600],
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Expires: ${donation.expiryDate.day}/${donation.expiryDate.month}/${donation.expiryDate.year}',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                  ),
+                ),
+                const Spacer(),
+                Icon(
+                  Icons.location_on,
+                  size: 16,
+                  color: Colors.grey[600],
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    donation.pickupAddress,
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            if (!isClaimed && onClaim != null) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: onClaim,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Claim Donation'),
+                ),
+              ),
+            ],
+            if (isClaimed && onRequestVolunteer != null) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: onRequestVolunteer,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.primaryColor,
+                    side: BorderSide(color: AppTheme.primaryColor),
+                  ),
+                  child: const Text('Request Volunteer'),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
-    );
+    ).animate().slideX(begin: 0.1, duration: 300.ms).fadeIn();
   }
 }
