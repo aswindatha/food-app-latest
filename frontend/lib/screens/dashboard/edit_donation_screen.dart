@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 import '../../models/donation.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
@@ -73,6 +75,29 @@ class _EditDonationScreenState extends State<EditDonationScreen> {
         );
         return;
       }
+
+      // Upload new image if changed
+      String? uploadedImageUrl = _imageUrl;
+      if (_imageUrl != null && 
+          _imageUrl!.isNotEmpty && 
+          _imageUrl != widget.donation.imageUrl &&
+          !_imageUrl!.startsWith('http')) {
+        final imageFile = File(_imageUrl!);
+        if (await imageFile.exists()) {
+          final uploadResult = await ApiService.uploadImage(
+            token: token,
+            imageFile: imageFile,
+          );
+          if (uploadResult['success'] == true) {
+            uploadedImageUrl = uploadResult['imageUrl'] as String;
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Image upload failed: ${uploadResult['error']}')),
+            );
+            // Continue without image rather than blocking
+          }
+        }
+      }
       
       final donationData = {
         'title': _titleController.text.trim(),
@@ -83,7 +108,7 @@ class _EditDonationScreenState extends State<EditDonationScreen> {
         'expiry_date': _expiryDate.toIso8601String(),
         'pickup_address': _pickupAddressController.text.trim(),
         'pickup_time': _pickupTime?.toIso8601String(),
-        'image_url': _imageUrl,
+        'image_url': uploadedImageUrl,
       };
 
       final result = await ApiService.updateDonation(
@@ -117,6 +142,29 @@ class _EditDonationScreenState extends State<EditDonationScreen> {
     return await AuthService.getToken();
   }
 
+  Future<void> _pickImage() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+      
+      if (image != null) {
+        setState(() {
+          _imageUrl = image.path;
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to pick image')),
+      );
+    }
+  }
+
+  void _removeImage() {
+    setState(() {
+      _imageUrl = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -134,6 +182,12 @@ class _EditDonationScreenState extends State<EditDonationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Image Section
+              _buildSectionHeader('Donation Image'),
+              const SizedBox(height: 16),
+              _buildImageSection(),
+              const SizedBox(height: 24),
+              
               // Basic Information
               _buildSectionHeader('Basic Information'),
               const SizedBox(height: 16),
@@ -392,6 +446,83 @@ class _EditDonationScreenState extends State<EditDonationScreen> {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
       ),
+    ).animate().fadeIn().scale();
+  }
+
+  Widget _buildImageSection() {
+    return Container(
+      height: 200,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey[300]!),
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.grey[50],
+      ),
+      child: _imageUrl != null
+          ? Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: _imageUrl!.startsWith('http')
+                      ? Image.network(
+                          _imageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                        )
+                      : Image.file(
+                          File(_imageUrl!),
+                          fit: BoxFit.cover,
+                        ),
+                ),
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.edit, color: Colors.white, size: 20),
+                          onPressed: _pickImage,
+                          tooltip: 'Change Image',
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.white, size: 20),
+                          onPressed: _removeImage,
+                          tooltip: 'Remove Image',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          : InkWell(
+              onTap: _pickImage,
+              borderRadius: BorderRadius.circular(8),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.camera_alt, size: 48, color: Colors.grey[400]),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Tap to add/change image',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
     ).animate().fadeIn().scale();
   }
 }

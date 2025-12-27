@@ -1,7 +1,27 @@
 const Donation = require('../models/Donation');
 const User = require('../models/User');
+const VolunteerRequest = require('../models/VolunteerRequest');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
+
+// Helper function to update expired donations
+const updateExpiredDonations = async () => {
+  try {
+    await Donation.update(
+      { status: 'expired' },
+      {
+        where: {
+          status: 'available',
+          expiry_date: {
+            [require('sequelize').Op.lt]: new Date()
+          }
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Error updating expired donations:', error);
+  }
+};
 
 // Create a new donation
 const createDonation = async (req, res) => {
@@ -59,12 +79,22 @@ const createDonation = async (req, res) => {
 // Get all donations for a donor (ordered by status)
 const getDonorDonations = async (req, res) => {
   try {
+    // Update expired donations first
+    await updateExpiredDonations();
+    
     const donations = await Donation.findAll({
       where: { donor_id: req.user.id },
       include: [
         { model: User, as: 'donor', attributes: ['id', 'username', 'first_name', 'last_name'] },
         { model: User, as: 'volunteer', attributes: ['id', 'username', 'first_name', 'last_name'] },
-        { model: User, as: 'organization', attributes: ['id', 'username', 'first_name', 'last_name'] }
+        { model: User, as: 'organization', attributes: ['id', 'username', 'first_name', 'last_name'] },
+        { 
+          model: VolunteerRequest, 
+          as: 'volunteerRequests',
+          include: [
+            { model: User, as: 'volunteer', attributes: ['id', 'username', 'first_name', 'last_name'] }
+          ]
+        }
       ],
       order: [
         ['status', 'ASC'], // available first, then claiming, in_transit, completed, cancelled
@@ -135,9 +165,9 @@ const updateDonation = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to edit this donation' });
     }
 
-    // Check if donation can be edited (not donated or expired)
-    if (donation.status !== 'current') {
-      return res.status(400).json({ message: 'Cannot edit donated or expired donations' });
+    // Check if donation can be edited (only available donations can be edited)
+    if (donation.status !== 'available') {
+      return res.status(400).json({ message: 'Cannot edit donations that have been claimed or are in transit' });
     }
 
     // Update donation
@@ -183,9 +213,9 @@ const deleteDonation = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to delete this donation' });
     }
 
-    // Check if donation can be deleted (not donated or expired)
-    if (donation.status !== 'current') {
-      return res.status(400).json({ message: 'Cannot delete donated or expired donations' });
+    // Check if donation can be deleted (only available donations can be deleted)
+    if (donation.status !== 'available') {
+      return res.status(400).json({ message: 'Cannot delete donations that have been claimed or are in transit' });
     }
 
     await donation.destroy();
@@ -200,6 +230,9 @@ const deleteDonation = async (req, res) => {
 // Get all available donations for volunteers and organizations
 const getAvailableDonations = async (req, res) => {
   try {
+    // Update expired donations first
+    await updateExpiredDonations();
+    
     const donations = await Donation.findAll({
       where: { 
         status: 'available',
@@ -233,8 +266,8 @@ const assignVolunteer = async (req, res) => {
       return res.status(404).json({ message: 'Donation not found' });
     }
 
-    if (donation.status !== 'current') {
-      return res.status(400).json({ message: 'Cannot assign to non-current donations' });
+    if (donation.status !== 'available') {
+      return res.status(400).json({ message: 'Cannot assign to non-available donations' });
     }
 
     await donation.update({ volunteer_id: req.user.id });

@@ -20,7 +20,8 @@ const getVolunteerRequests = async (req, res) => {
       where: whereClause,
       include: [
         { 
-          model: Donation, 
+          model: Donation,
+          as: 'donation',
           attributes: ['id', 'title', 'description', 'donation_type', 'quantity', 'unit'],
           include: [
             { model: User, as: 'donor', attributes: ['id', 'username', 'first_name', 'last_name'] },

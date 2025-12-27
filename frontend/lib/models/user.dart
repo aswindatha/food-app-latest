@@ -5,6 +5,7 @@ class User {
   final String firstName;
   final String lastName;
   final String? phone;
+  final String? address;
   final String role;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -16,6 +17,7 @@ class User {
     required this.firstName,
     required this.lastName,
     this.phone,
+    this.address,
     required this.role,
     required this.createdAt,
     required this.updatedAt,
@@ -29,6 +31,7 @@ class User {
       firstName: json['first_name'] ?? '',
       lastName: json['last_name'] ?? '',
       phone: json['phone'],
+      address: json['address'],
       role: json['role'] ?? '',
       createdAt: DateTime.parse(json['created_at'] ?? DateTime.now().toIso8601String()),
       updatedAt: DateTime.parse(json['updated_at'] ?? DateTime.now().toIso8601String()),
@@ -43,6 +46,7 @@ class User {
       'first_name': firstName,
       'last_name': lastName,
       'phone': phone,
+      'address': address,
       'role': role,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),

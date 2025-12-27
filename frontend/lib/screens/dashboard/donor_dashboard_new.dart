@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'dart:io';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/donation.dart';
 import '../../models/conversation.dart';
+import '../../models/user.dart';
 import '../../services/api_service.dart';
 import '../../utils/app_theme.dart';
 import 'add_donation_screen.dart';
 import 'chat_screen.dart';
 import 'edit_donation_screen.dart';
+import 'conversation_detail_screen.dart';
 
 class DonorDashboardNew extends StatefulWidget {
   const DonorDashboardNew({super.key});
@@ -23,6 +26,39 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
   List<Conversation> _conversations = [];
   bool _isLoading = false;
   String? _error;
+
+  Widget _buildDonationImage(String? imageUrl) {
+    final url = imageUrl?.trim();
+    if (url == null || url.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // If it's a relative URL (starts with /assets), prepend server base URL
+    final fullUrl = url.startsWith('/') 
+        ? 'http://localhost:5000$url'
+        : url;
+
+    final Widget image = (fullUrl.startsWith('http://') || fullUrl.startsWith('https://'))
+        ? Image.network(
+            fullUrl,
+            height: 180,
+            width: 300,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+          )
+        : Image.file(
+            File(fullUrl),
+            height: 180,
+            width: 300,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+          );
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: image,
+    );
+  }
 
   @override
   void initState() {
@@ -147,6 +183,8 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              _buildDonationImage(donation.imageUrl),
+              if ((donation.imageUrl ?? '').trim().isNotEmpty) const SizedBox(height: 12),
               Text('Type: ${donation.typeDisplay}'),
               const SizedBox(height: 8),
               Text('Quantity: ${donation.quantity} ${donation.unit}'),
@@ -177,6 +215,249 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
     );
   }
 
+  void _showProfileDialog() {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user!;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Profile'),
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 30,
+                    backgroundColor: AppTheme.primaryColor,
+                    child: Text(
+                      user.firstName.isNotEmpty ? user.firstName[0].toUpperCase() : 'U',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${user.firstName} ${user.lastName}',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          user.role.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              _buildProfileItem('Username', user.username),
+              _buildProfileItem('Email', user.email),
+              _buildProfileItem('Phone', user.phone ?? 'Not provided'),
+              _buildProfileItem('Address', user.address ?? 'Not provided'),
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _showChangePasswordDialog,
+                  icon: const Icon(Icons.lock),
+                  label: const Text('Change Password'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileItem(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangePasswordDialog() {
+    Navigator.pop(context); // Close profile dialog
+    final _currentPasswordController = TextEditingController();
+    final _newPasswordController = TextEditingController();
+    final _confirmPasswordController = TextEditingController();
+    final _formKey = GlobalKey<FormState>();
+    bool _isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Change Password'),
+          content: SizedBox(
+            width: 400,
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: _currentPasswordController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Current Password',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter current password';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _newPasswordController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'New Password',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter new password';
+                      }
+                      if (value.length < 6) {
+                        return 'Password must be at least 6 characters';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _confirmPasswordController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Confirm New Password',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please confirm new password';
+                      }
+                      if (value != _newPasswordController.text) {
+                        return 'Passwords do not match';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: _isLoading ? null : () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: _isLoading ? null : () async {
+                if (_formKey.currentState!.validate()) {
+                  setState(() => _isLoading = true);
+                  
+                  try {
+                    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                    final result = await authProvider.changePassword(
+                      _currentPasswordController.text,
+                      _newPasswordController.text,
+                    );
+                    
+                    Navigator.pop(context);
+                    
+                    if (result['success']) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Password changed successfully')),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(result['message'] ?? 'Failed to change password')),
+                      );
+                    }
+                  } catch (e) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('An error occurred')),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.white,
+              ),
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Text('Change Password'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
@@ -190,6 +471,11 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person),
+            onPressed: _showProfileDialog,
+            tooltip: 'Profile',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
@@ -291,7 +577,7 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
 
     // Group donations by status
     final currentDonations = _donations.where((d) => d.isCurrent).toList();
-    final donatedDonations = _donations.where((d) => d.isDonated).toList();
+    final donatedDonations = _donations.where((d) => d.isDelivered || d.status == 'in_transit').toList();
     final expiredDonations = _donations.where((d) => d.isExpired).toList();
 
     return RefreshIndicator(
@@ -433,11 +719,133 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
                   ],
                 ),
               ],
-            ],
-          ),
+              if (donation.status == 'in_transit') ...[
+                const SizedBox(height: 12),
+                _buildInTransitButtons(donation),
+              ],
+         ] ),
         ),
       ),
     ).animate().fadeIn().slideY();
+  }
+
+  Widget _buildInTransitButtons(Donation donation) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        // Chat with Organization button
+        if (donation.organization != null)
+          ElevatedButton.icon(
+            onPressed: () => _startChat(donation.organization!, 'organization'),
+            icon: const Icon(Icons.chat, size: 16),
+            label: const Text('Chat Org'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        if (donation.organization != null) const SizedBox(width: 8),
+        
+        // Chat with Volunteer button/dropdown
+        if (donation.volunteerRequests != null && donation.volunteerRequests!.isNotEmpty)
+          _buildVolunteerChatDropdown(donation)
+        else if (donation.volunteer != null)
+          ElevatedButton.icon(
+            onPressed: () => _startChat(donation.volunteer!, 'volunteer'),
+            icon: const Icon(Icons.chat, size: 16),
+            label: const Text('Chat Volunteer'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+          )
+        else
+          ElevatedButton.icon(
+            onPressed: null, // Disabled when no volunteer
+            icon: const Icon(Icons.chat, size: 16),
+            label: const Text('No Volunteer'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.grey,
+              foregroundColor: Colors.white70,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildVolunteerChatDropdown(Donation donation) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: AppTheme.primaryColor),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: DropdownButton<String>(
+        hint: const Text('Chat Volunteer'),
+        value: null,
+        isExpanded: false,
+        underline: const SizedBox(),
+        items: donation.volunteerRequests!.map((request) {
+          if (request.volunteer != null) {
+            return DropdownMenuItem<String>(
+              value: request.volunteer!.id.toString(),
+              child: Row(
+                children: [
+                  const Icon(Icons.chat, size: 16),
+                  const SizedBox(width: 8),
+                  Text('Chat ${request.volunteer!.firstName}'),
+                ],
+              ),
+            );
+          }
+          return null;
+        }).where((item) => item != null).cast<DropdownMenuItem<String>>().toList(),
+        onChanged: (value) {
+          if (value != null) {
+            final volunteerId = int.parse(value);
+            final volunteer = donation.volunteerRequests!
+                .firstWhere((req) => req.volunteer?.id == volunteerId)
+                .volunteer;
+            if (volunteer != null) {
+              _startChat(volunteer, 'volunteer');
+            }
+          }
+        },
+      ),
+    );
+  }
+
+  Future<void> _startChat(User user, String userType) async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = authProvider.token!;
+
+      final result = await ApiService.createConversation(
+        token: token,
+        participant2Id: user.id,
+        participant2Type: userType,
+      );
+
+      if (result['success']) {
+        // Navigate to conversation detail
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ConversationDetailScreen(
+              conversation: result['conversation'],
+              onMessageSent: _loadData,
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['error'] ?? 'Failed to start conversation')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('An error occurred')),
+      );
+    }
   }
 
   Color _getStatusColor(String status) {

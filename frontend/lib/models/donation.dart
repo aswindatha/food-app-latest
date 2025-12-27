@@ -1,4 +1,5 @@
 import 'user.dart';
+import 'volunteer_request.dart';
 
 class Donation {
   final int id;
@@ -20,6 +21,7 @@ class Donation {
   final User? donor;
   final User? volunteer;
   final User? organization;
+  final List<VolunteerRequest>? volunteerRequests;
 
   Donation({
     required this.id,
@@ -41,9 +43,23 @@ class Donation {
     this.donor,
     this.volunteer,
     this.organization,
+    this.volunteerRequests,
   });
 
   factory Donation.fromJson(Map<String, dynamic> json) {
+    final volunteerRequestsJson = json['volunteerRequests'] ?? json['volunteer_requests'] ?? [];
+    final List<VolunteerRequest> volunteerRequestsList = [];
+    
+    if (volunteerRequestsJson is List) {
+      for (final item in volunteerRequestsJson) {
+        try {
+          volunteerRequestsList.add(VolunteerRequest.fromJson(item));
+        } catch (e) {
+          // Skip invalid volunteer request entries
+        }
+      }
+    }
+    
     return Donation(
       id: json['id'] ?? 0,
       donorId: json['donor_id'] ?? 0,
@@ -64,6 +80,7 @@ class Donation {
       donor: json['donor'] != null ? User.fromJson(json['donor']) : null,
       volunteer: json['volunteer'] != null ? User.fromJson(json['volunteer']) : null,
       organization: json['organization'] != null ? User.fromJson(json['organization']) : null,
+      volunteerRequests: volunteerRequestsList.isEmpty ? null : volunteerRequestsList,
     );
   }
 
@@ -108,6 +125,7 @@ class Donation {
     User? donor,
     User? volunteer,
     User? organization,
+    List<VolunteerRequest>? volunteerRequests,
   }) {
     return Donation(
       id: id ?? this.id,
@@ -129,21 +147,35 @@ class Donation {
       donor: donor ?? this.donor,
       volunteer: volunteer ?? this.volunteer,
       organization: organization ?? this.organization,
+      volunteerRequests: volunteerRequests ?? this.volunteerRequests,
     );
   }
 
-  bool get isEditable => status == 'available' || status == 'current';
-  bool get isExpired => status == 'expired';
-  bool get isDonated => status == 'donated';
-  bool get isCurrent => status == 'available' || status == 'current';
+  bool get isEditable => status == 'available' && !isExpired;
+  bool get isExpired {
+    // Check if status is expired or if expiry date has passed
+    return status == 'expired' || expiryDate.isBefore(DateTime.now());
+  }
+  bool get isDelivered => status == 'completed';
+  bool get isCurrent => status == 'available' && !isExpired;
 
   String get statusDisplay {
+    // Check for client-side expiry first
+    if (isExpired) {
+      return 'Expired';
+    }
+    
     switch (status) {
-      case 'current':
       case 'available':
         return 'Available';
-      case 'donated':
-        return 'Donated';
+      case 'claiming':
+        return 'Claiming';
+      case 'in_transit':
+        return 'In Transit';
+      case 'completed':
+        return 'Delivered';
+      case 'cancelled':
+        return 'Cancelled';
       case 'expired':
         return 'Expired';
       default:

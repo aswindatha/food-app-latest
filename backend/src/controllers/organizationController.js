@@ -5,9 +5,31 @@ const User = require('../models/User');
 const VolunteerRequest = require('../models/VolunteerRequest');
 const Conversation = require('../models/Conversation');
 
+// Helper function to update expired donations
+const updateExpiredDonations = async () => {
+  try {
+    await Donation.update(
+      { status: 'expired' },
+      {
+        where: {
+          status: 'available',
+          expiry_date: {
+            [Op.lt]: new Date()
+          }
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Error updating expired donations:', error);
+  }
+};
+
 // List available donations for organizations
 const getAvailableDonations = async (req, res) => {
   try {
+    // Update expired donations first
+    await updateExpiredDonations();
+    
     const { type } = req.query;
     
     const whereClause = {
@@ -88,20 +110,109 @@ const claimDonation = async (req, res) => {
   }
 };
 
+// Request multiple volunteers for a claimed donation
+const requestMultipleVolunteers = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { volunteerCount, message } = req.body;
+
+    if (!volunteerCount || volunteerCount < 1 || volunteerCount > 10) {
+      return res.status(400).json({ message: 'Volunteer count must be between 1 and 10' });
+    }
+
+    const donation = await Donation.findByPk(id);
+
+    if (!donation) {
+      return res.status(404).json({ message: 'Donation not found' });
+    }
+
+    if (donation.organization_id !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to request volunteers for this donation' });
+    }
+
+    if (donation.status !== 'claiming' && donation.status !== 'in_transit') {
+      return res.status(400).json({ message: 'Can only request volunteers for donations in claiming or in_transit status' });
+    }
+
+    // Get available volunteers (exclude those already requested for this donation)
+    const existingVolunteerIds = await VolunteerRequest.findAll({
+      where: { donation_id: id },
+      attributes: ['volunteer_id']
+    }).then(requests => requests.map(r => r.volunteer_id));
+
+    const availableVolunteers = await User.findAll({
+      where: {
+        role: 'volunteer',
+        id: { [Op.notIn]: existingVolunteerIds }
+      },
+      limit: volunteerCount,
+      order: [['created_at', 'ASC']]
+    });
+
+    if (availableVolunteers.length < volunteerCount) {
+      return res.status(400).json({ 
+        message: `Only ${availableVolunteers.length} volunteers available, but ${volunteerCount} requested` 
+      });
+    }
+
+    // Start a transaction
+    const result = await sequelize.transaction(async (t) => {
+      // Update donation volunteer_count
+      console.log('Before update - donation.volunteer_count:', donation.volunteer_count, 'adding:', volunteerCount);
+      await donation.update({
+        volunteer_count: donation.volunteer_count + volunteerCount
+      }, { transaction: t });
+      console.log('After update - donation.volunteer_count:', donation.volunteer_count);
+
+      // Create volunteer requests
+      const requests = [];
+      for (const volunteer of availableVolunteers) {
+        const volunteerRequest = await VolunteerRequest.create({
+          donation_id: id,
+          organization_id: req.user.id,
+          volunteer_id: volunteer.id,
+          message: message || `Volunteer needed for donation: ${donation.title}`,
+          status: 'pending'
+        }, { transaction: t });
+
+        requests.push(volunteerRequest);
+      }
+
+      return requests;
+    });
+
+    // Get the requests with associations
+    const requestsWithDetails = await VolunteerRequest.findAll({
+      where: { id: { [Op.in]: result.map(r => r.id) } },
+      include: [
+        { model: User, as: 'volunteer', attributes: ['id', 'username', 'first_name', 'last_name'] },
+        { model: Donation, as: 'donation', attributes: ['id', 'title', 'status', 'volunteer_count'] },
+      ]
+    });
+
+    // TODO: Emit socket event to notify volunteers
+
+    res.status(201).json({
+      message: `${volunteerCount} volunteer requests sent successfully`,
+      requests: requestsWithDetails,
+      updatedDonation: await Donation.findByPk(id, {
+        attributes: ['id', 'volunteer_count']
+      })
+    });
+  } catch (error) {
+    console.error('Error requesting multiple volunteers:', error);
+    res.status(500).json({ message: 'Internal server error', error: error.message });
+  }
+};
+
 // Request a volunteer for a claimed donation
 const requestVolunteer = async (req, res) => {
   try {
     const { id } = req.params;
-    const { volunteer_id, message } = req.body;
+    const { volunteerId, message } = req.body;
 
-    if (!volunteer_id) {
-      return res.status(400).json({ message: 'Volunteer ID is required' });
-    }
-
-    const [donation, volunteer] = await Promise.all([
-      Donation.findByPk(id),
-      User.findByPk(volunteer_id)
-    ]);
+    const donation = await Donation.findByPk(id);
+    const volunteer = await User.findByPk(volunteerId);
 
     if (!donation) {
       return res.status(404).json({ message: 'Donation not found' });
@@ -115,8 +226,8 @@ const requestVolunteer = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to request volunteer for this donation' });
     }
 
-    if (donation.status !== 'claiming') {
-      return res.status(400).json({ message: 'Can only request volunteers for donations in claiming status' });
+    if (donation.status !== 'claiming' && donation.status !== 'in_transit') {
+      return res.status(400).json({ message: 'Can only request volunteers for donations in claiming or in_transit status' });
     }
 
     // Check if a request already exists
@@ -270,6 +381,7 @@ module.exports = {
   getAvailableDonations,
   claimDonation,
   requestVolunteer,
+  requestMultipleVolunteers,
   getClaimedDonations,
   updateDonationStatus,
 };

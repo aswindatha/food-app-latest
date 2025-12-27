@@ -81,7 +81,7 @@ const Donation = sequelize.define('Donation', {
     type: DataTypes.STRING(20),
     defaultValue: 'available',
     validate: {
-      isIn: [['available', 'claiming', 'in_transit', 'completed', 'cancelled']],
+      isIn: [['available', 'claiming', 'in_transit', 'completed', 'cancelled', 'expired']],
     },
   },
   volunteer_id: {
@@ -104,6 +104,14 @@ const Donation = sequelize.define('Donation', {
     onUpdate: 'SET NULL',
     onDelete: 'SET NULL',
   },
+  volunteer_count: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    allowNull: false,
+    validate: {
+      min: 0,
+    },
+  },
   image_url: {
     type: DataTypes.STRING,
     allowNull: true,
@@ -114,12 +122,5 @@ const Donation = sequelize.define('Donation', {
   createdAt: 'created_at',
   updatedAt: 'updated_at',
 });
-
-// Define associations
-Donation.belongsTo(User, { as: 'donor', foreignKey: 'donor_id' });
-Donation.belongsTo(User, { as: 'volunteer', foreignKey: 'volunteer_id' });
-Donation.belongsTo(User, { as: 'organization', foreignKey: 'organization_id' });
-
-User.hasMany(Donation, { as: 'donations', foreignKey: 'donor_id' });
 
 module.exports = Donation;

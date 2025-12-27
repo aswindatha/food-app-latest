@@ -72,6 +72,26 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final token = authProvider.token!;
 
+      // Upload image first if selected
+      String? uploadedImageUrl;
+      if (_imageUrl != null && _imageUrl!.isNotEmpty) {
+        final imageFile = File(_imageUrl!);
+        if (await imageFile.exists()) {
+          final uploadResult = await ApiService.uploadImage(
+            token: token,
+            imageFile: imageFile,
+          );
+          if (uploadResult['success'] == true) {
+            uploadedImageUrl = uploadResult['imageUrl'] as String;
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Image upload failed: ${uploadResult['error']}')),
+            );
+            // Continue without image rather than blocking
+          }
+        }
+      }
+
       final donationData = {
         'title': _titleController.text.trim(),
         'description': _descriptionController.text.trim(),
@@ -81,7 +101,7 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
         'expiry_date': _expiryDate.toIso8601String(),
         'pickup_address': _pickupAddressController.text.trim(),
         'pickup_time': _pickupTime?.toIso8601String(),
-        'image_url': _imageUrl,
+        'image_url': uploadedImageUrl,
       };
 
       final result = await ApiService.createDonation(

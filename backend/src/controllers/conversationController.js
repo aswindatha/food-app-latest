@@ -120,7 +120,14 @@ const createConversation = async (req, res) => {
     });
 
     if (existingConversation) {
-      return res.status(400).json({ message: 'Conversation already exists' });
+      // Return existing conversation with participant details
+      const conversationWithDetails = await Conversation.findByPk(existingConversation.id, {
+        include: [
+          { model: User, as: 'participant1', attributes: ['id', 'username', 'first_name', 'last_name', 'role'] },
+          { model: User, as: 'participant2', attributes: ['id', 'username', 'first_name', 'last_name', 'role'] }
+        ]
+      });
+      return res.status(200).json(conversationWithDetails);
     }
 
     // Create new conversation

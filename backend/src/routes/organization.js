@@ -19,6 +19,9 @@ router.get('/donations/claimed', organizationController.getClaimedDonations);
 // Request a volunteer for a claimed donation
 router.post('/donations/:id/request-volunteer', organizationController.requestVolunteer);
 
+// Request multiple volunteers for a claimed donation
+router.post('/donations/:id/request-multiple-volunteers', organizationController.requestMultipleVolunteers);
+
 // Update donation status (in_transit, completed, cancelled)
 router.put('/donations/:id/status', organizationController.updateDonationStatus);
 

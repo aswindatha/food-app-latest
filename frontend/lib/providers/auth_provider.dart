@@ -102,6 +102,34 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // Change password
+  Future<Map<String, dynamic>> changePassword(
+    String currentPassword,
+    String newPassword,
+  ) async {
+    _setLoading(true);
+    _clearError();
+    
+    try {
+      final result = await AuthService.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+      );
+
+      if (result['success']) {
+        return {'success': true};
+      } else {
+        _setError(result['error'] ?? 'Password change failed');
+        return {'success': false, 'message': result['error'] ?? 'Password change failed'};
+      }
+    } catch (e) {
+      _setError('Password change failed: $e');
+      return {'success': false, 'message': 'Password change failed: $e'};
+    } finally {
+      _setLoading(false);
+    }
+  }
+
   // Logout user
   Future<void> logout() async {
     _setLoading(true);

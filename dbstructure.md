@@ -33,13 +33,29 @@ Stores food donation information from donors.
 | expiry_date      | TIMESTAMP       | NOT NULL                         | Food expiration date                |
 | pickup_address   | TEXT            | NOT NULL                         | Pickup location address              |
 | pickup_time      | TIMESTAMP       |                                  | Preferred pickup time               |
-| status           | VARCHAR(20)     | DEFAULT 'current'                | Status: current, donated, expired   |
+| status           | VARCHAR(20)     | DEFAULT 'available'              | Status: available, claiming, in_transit, completed, cancelled, expired   |
 | volunteer_id     | INTEGER         | FOREIGN KEY(users.id)            | Assigned volunteer (if any)         |
 | organization_id  | INTEGER         | FOREIGN KEY(users.id)            | Assigned organization (if any)      |
+| volunteer_count  | INTEGER         | DEFAULT 0, NOT NULL              | Number of volunteers requested      |
 | created_at       | TIMESTAMP       | DEFAULT CURRENT_TIMESTAMP        | Record creation timestamp           |
 | updated_at       | TIMESTAMP       | DEFAULT CURRENT_TIMESTAMP        | Record last update timestamp        |
 
-#### 3. conversations
+#### 3. volunteers
+Stores volunteer assignments and their status for claimed donations.
+
+| Column Name      | Type            | Constraints                      | Description                          |
+|------------------|-----------------|----------------------------------|--------------------------------------|
+| id               | SERIAL          | PRIMARY KEY                      | Auto-incrementing ID                |
+| donation_id      | INTEGER         | NOT NULL, FOREIGN KEY(donations.id) | Reference to donation              |
+| volunteer_id     | INTEGER         | NOT NULL, FOREIGN KEY(users.id)  | Reference to volunteer user         |
+| status           | VARCHAR(20)     | DEFAULT 'requested'             | Status: requested, accepted, rejected, completed |
+| requested_at     | TIMESTAMP       | DEFAULT CURRENT_TIMESTAMP        | When volunteer was requested         |
+| responded_at     | TIMESTAMP       |                                  | When volunteer responded             |
+| completed_at     | TIMESTAMP       |                                  | When volunteer task was completed   |
+| created_at       | TIMESTAMP       | DEFAULT CURRENT_TIMESTAMP        | Record creation timestamp           |
+| updated_at       | TIMESTAMP       | DEFAULT CURRENT_TIMESTAMP        | Record last update timestamp        |
+
+#### 4. conversations
 Stores chat conversations between users.
 
 | Column Name      | Type            | Constraints                      | Description                          |
@@ -52,7 +68,7 @@ Stores chat conversations between users.
 | last_message_at  | TIMESTAMP       |                                  | Timestamp of last message           |
 | created_at       | TIMESTAMP       | DEFAULT CURRENT_TIMESTAMP       | Conversation start timestamp        |
 
-#### 4. messages
+#### 5. messages
 Stores individual messages in conversations.
 
 | Column Name      | Type            | Constraints                      | Description                          |
@@ -63,4 +79,18 @@ Stores individual messages in conversations.
 | message_text     | TEXT            | NOT NULL                        | Message content                       |
 | is_read          | BOOLEAN         | DEFAULT FALSE                   | Whether message is read               |
 | created_at       | TIMESTAMP       | DEFAULT CURRENT_TIMESTAMP       | Message timestamp                     |
+
+#### 6. volunteer_requests
+Stores volunteer requests for donations (legacy system - being phased out).
+
+| Column Name      | Type            | Constraints                      | Description                          |
+|------------------|-----------------|----------------------------------|--------------------------------------|
+| id               | SERIAL          | PRIMARY KEY                      | Auto-incrementing ID                 |
+| donation_id      | INTEGER         | NOT NULL, FOREIGN KEY(donations.id) | Reference to donation              |
+| organization_id  | INTEGER         | NOT NULL, FOREIGN KEY(users.id)  | Reference to organization            |
+| volunteer_id     | INTEGER         | NOT NULL, FOREIGN KEY(users.id)  | Reference to volunteer user         |
+| status           | VARCHAR(20)     | DEFAULT 'pending'                | Status: pending, accepted, rejected  |
+| message          | TEXT            |                                  | Request message                      |
+| created_at       | TIMESTAMP       | DEFAULT CURRENT_TIMESTAMP        | Record creation timestamp           |
+| updated_at       | TIMESTAMP       | DEFAULT CURRENT_TIMESTAMP        | Record last update timestamp        |
 

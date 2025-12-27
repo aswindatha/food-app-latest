@@ -138,9 +138,9 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.conversation.displayName),
+            Text(widget.conversation.getOtherParticipantName(currentUserId)),
             Text(
-              widget.conversation.participant2TypeDisplay,
+              widget.conversation.getOtherParticipantType(currentUserId).toUpperCase(),
               style: const TextStyle(fontSize: 12, color: Colors.white70),
             ),
           ],

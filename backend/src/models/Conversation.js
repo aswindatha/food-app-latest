@@ -2,7 +2,6 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = process.env.NODE_ENV === 'test' 
   ? require('../config/test-db') 
   : require('../config/db');
-const User = require('./User');
 
 const Conversation = sequelize.define('Conversation', {
   id: {
@@ -14,7 +13,7 @@ const Conversation = sequelize.define('Conversation', {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: User,
+      model: 'users',
       key: 'id',
     },
     onUpdate: 'CASCADE',
@@ -24,7 +23,7 @@ const Conversation = sequelize.define('Conversation', {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: User,
+      model: 'users',
       key: 'id',
     },
     onUpdate: 'CASCADE',
@@ -51,12 +50,5 @@ const Conversation = sequelize.define('Conversation', {
   createdAt: 'created_at',
   updatedAt: false,
 });
-
-// Define associations
-Conversation.belongsTo(User, { as: 'participant1', foreignKey: 'participant1_id' });
-Conversation.belongsTo(User, { as: 'participant2', foreignKey: 'participant2_id' });
-
-User.hasMany(Conversation, { as: 'conversations1', foreignKey: 'participant1_id' });
-User.hasMany(Conversation, { as: 'conversations2', foreignKey: 'participant2_id' });
 
 module.exports = Conversation;

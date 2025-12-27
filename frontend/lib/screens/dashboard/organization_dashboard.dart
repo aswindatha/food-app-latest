@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/donation.dart';
-import '../../models/user.dart';
 import '../../providers/auth_provider.dart';
+
 import '../../services/api_service.dart';
 import '../../utils/app_theme.dart';
 import 'chat_screen.dart';
@@ -66,7 +67,10 @@ class _OrganizationDashboardState extends State<OrganizationDashboard>
 
       if (availableResult['success'] == true && claimedResult['success'] == true) {
         setState(() {
-          _availableDonations = (availableResult['donations'] as List<Donation>);
+          // Filter out expired donations on client side as extra protection
+          _availableDonations = (availableResult['donations'] as List<Donation>)
+              .where((donation) => !donation.isExpired)
+              .toList();
           _claimedDonations = (claimedResult['donations'] as List<Donation>);
           _isLoading = false;
         });
@@ -92,20 +96,44 @@ class _OrganizationDashboardState extends State<OrganizationDashboard>
 
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Claim Donation'),
-          content: Text('Do you want to claim "${donation.title}"?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
+        builder: (context) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 300),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Claim Donation',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.primaryColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text('Do you want to claim "${donation.title}"?'),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Cancel'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+                      child: const Text('Claim'),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
-              child: const Text('Claim'),
-            ),
-          ],
+          ),
         ),
       );
 
@@ -137,122 +165,59 @@ class _OrganizationDashboardState extends State<OrganizationDashboard>
     }
   }
 
-  Future<void> _requestVolunteer(Donation donation) async {
+  Future<void> _requestMultipleVolunteers(Donation donation, int volunteerCount) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final token = authProvider.token;
     if (token == null) return;
 
     try {
-      final usersResult = await ApiService.getAvailableUsers(token: token, role: 'volunteer');
-      if (usersResult['success'] != true) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(usersResult['error'] ?? 'Failed to load volunteers')),
-        );
-        return;
-      }
-
-      final volunteers = (usersResult['users'] as List<User>);
-      if (!mounted) return;
-
-      final selectedVolunteer = await showDialog<User?>(
+      final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Select Volunteer'),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: 420,
-            child: volunteers.isEmpty
-                ? const Center(child: Text('No volunteers available'))
-                : ListView.builder(
-                    itemCount: volunteers.length,
-                    itemBuilder: (context, index) {
-                      final v = volunteers[index];
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: AppTheme.primaryColor,
-                          child: Text(
-                            '${v.firstName[0]}${v.lastName[0]}',
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                        ),
-                        title: Text('${v.firstName} ${v.lastName}'),
-                        subtitle: Text(v.roleDisplay),
-                        onTap: () => Navigator.pop(context, v),
-                      );
-                    },
-                  ),
-          ),
+          title: const Text('Request Volunteers'),
+          content: Text('Do you want to request $volunteerCount volunteer${volunteerCount > 1 ? 's' : ''} for "${donation.title}"?'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context, false),
               child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+              child: const Text('Request'),
             ),
           ],
         ),
       );
 
-      if (selectedVolunteer == null) return;
+      if (confirmed != true) return;
 
-      final result = await ApiService.requestVolunteerForDonation(
+      final result = await ApiService.requestMultipleVolunteers(
         token: token,
         donationId: donation.id,
-        volunteerId: selectedVolunteer.id,
+        volunteerCount: volunteerCount,
+        message: 'Volunteers needed for donation: ${donation.title}',
       );
 
       if (!mounted) return;
 
       if (result['success'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Volunteer request sent')),
+          SnackBar(content: Text('$volunteerCount volunteer request${volunteerCount > 1 ? 's' : ''} sent successfully')),
         );
+        Navigator.pop(context);
         await _loadData();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['error'] ?? 'Failed to request volunteer')),
+          SnackBar(content: Text(result['error'] ?? 'Failed to request volunteers')),
         );
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('An error occurred')),
-      );
-    }
-  }
-
-  Future<void> _chatWithVolunteer(User volunteer) async {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final token = authProvider.token;
-    if (token == null) return;
-
-    try {
-      final result = await ApiService.createConversation(
-        token: token,
-        participant2Id: volunteer.id,
-        participant2Type: 'volunteer',
-      );
-
-      if (!mounted) return;
-
-      if (result['success'] == true) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ConversationDetailScreen(
-              conversation: result['conversation'],
-            ),
-          ),
-        );
-      } else {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['error'] ?? 'Failed to start chat')),
+          const SnackBar(content: Text('An error occurred')),
         );
       }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('An error occurred')),
-      );
     }
   }
 
@@ -264,25 +229,61 @@ class _OrganizationDashboardState extends State<OrganizationDashboard>
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
-        title: Text('Welcome, ${user?.firstName ?? 'Organization'}!'),
         backgroundColor: AppTheme.primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,
+        title: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: Colors.white.withOpacity(0.2),
+              child: const Icon(
+                Icons.person,
+                size: 20,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text('Welcome, ${user?.firstName ?? 'Organization'}!'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
           ),
+          IconButton(
+            icon: const Icon(Icons.person),
+            onPressed: () => _showProfileDialog(context),
+          ),
           PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'logout') {
+              if (value == 'profile') {
+                _showProfileDialog(context);
+              } else if (value == 'logout') {
                 authProvider.logout();
               }
             },
             itemBuilder: (context) => const [
               PopupMenuItem(
+                value: 'profile',
+                child: Row(
+                  children: [
+                    Icon(Icons.person),
+                    SizedBox(width: 8),
+                    Text('Profile'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
                 value: 'logout',
-                child: Text('Logout'),
+                child: Row(
+                  children: [
+                    Icon(Icons.logout),
+                    SizedBox(width: 8),
+                    Text('Logout'),
+                  ],
+                ),
               ),
             ],
           ),
@@ -561,62 +562,10 @@ class _OrganizationDashboardState extends State<OrganizationDashboard>
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: Text(donation.title),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Type: ${donation.typeDisplay}'),
-                const SizedBox(height: 8),
-                Text('Quantity: ${donation.quantity} ${donation.unit}'),
-                const SizedBox(height: 8),
-                Text('Status: ${donation.status}'),
-                const SizedBox(height: 8),
-                Text('Pickup Address: ${donation.pickupAddress}'),
-                const SizedBox(height: 8),
-                Text('Expires: ${donation.expiryDate.day}/${donation.expiryDate.month}/${donation.expiryDate.year}'),
-                if (isTransporting) ...[
-                  const SizedBox(height: 16),
-                  if (donation.volunteer != null) ...[
-                    Text('Volunteer: ${donation.volunteer!.firstName} ${donation.volunteer!.lastName}'),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _chatWithVolunteer(donation.volunteer!);
-                        },
-                        icon: const Icon(Icons.chat),
-                        label: const Text('Chat with Volunteer'),
-                        style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
-                      ),
-                    ),
-                  ] else ...[
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _requestVolunteer(donation);
-                        },
-                        icon: const Icon(Icons.volunteer_activism),
-                        label: const Text('Request Volunteer'),
-                      ),
-                    ),
-                  ],
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
+        return VolunteerRequestDialog(
+          donation: donation,
+          isTransporting: isTransporting,
+          onRequestVolunteers: (volunteerCount) => _requestMultipleVolunteers(donation, volunteerCount),
         );
       },
     );
@@ -747,7 +696,7 @@ class _OrganizationDashboardState extends State<OrganizationDashboard>
                   onPressed: onRequestVolunteer,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppTheme.primaryColor,
-                    side: BorderSide(color: AppTheme.primaryColor),
+                    side: const BorderSide(color: AppTheme.primaryColor),
                   ),
                   child: const Text('Request Volunteer'),
                 ),
@@ -757,5 +706,638 @@ class _OrganizationDashboardState extends State<OrganizationDashboard>
         ),
       ),
     ).animate().slideX(begin: 0.1, duration: 300.ms).fadeIn();
+  }
+
+  void _showProfileDialog(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    if (user == null) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Profile Header
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 30,
+                    backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+                    child: Icon(
+                      Icons.person,
+                      size: 30,
+                      color: AppTheme.primaryColor,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${user.firstName} ${user.lastName}',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryColor,
+                          ),
+                        ),
+                        Text(
+                          user.role.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    color: Colors.grey,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              
+              // Profile Information
+              const Text(
+                'Profile Information',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryColor,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildProfileInfoRow('Username', user.username),
+              _buildProfileInfoRow('Email', user.email),
+              if (user.phone != null) 
+                _buildProfileInfoRow('Phone', user.phone!),
+              _buildProfileInfoRow('Member Since', 
+                '${user.createdAt.day}/${user.createdAt.month}/${user.createdAt.year}'),
+              
+              const SizedBox(height: 24),
+              
+              // Action Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _showChangePasswordDialog(context);
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppTheme.primaryColor),
+                        foregroundColor: AppTheme.primaryColor,
+                      ),
+                      child: const Text('Change Password'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        authProvider.logout();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryColor,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Logout'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: Colors.black87,
+                fontSize: 16,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangePasswordDialog(BuildContext context) {
+    final TextEditingController currentPasswordController = TextEditingController();
+    final TextEditingController newPasswordController = TextEditingController();
+    final TextEditingController confirmPasswordController = TextEditingController();
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.lock, color: AppTheme.primaryColor),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Change Password',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.primaryColor,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                      color: Colors.grey,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                
+                TextField(
+                  controller: currentPasswordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Current Password',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                TextField(
+                  controller: newPasswordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'New Password',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                TextField(
+                  controller: confirmPasswordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm New Password',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                
+                if (isLoading)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppTheme.primaryColor),
+                            foregroundColor: AppTheme.primaryColor,
+                          ),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            if (newPasswordController.text != confirmPasswordController.text) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Passwords do not match')),
+                              );
+                              return;
+                            }
+                            
+                            setState(() => isLoading = true);
+                            
+                            // TODO: Implement password change API call
+                            await Future.delayed(const Duration(seconds: 2));
+                            
+                            setState(() => isLoading = false);
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Password changed successfully')),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryColor,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Change Password'),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class VolunteerRequestDialog extends StatefulWidget {
+  final Donation donation;
+  final bool isTransporting;
+  final Function(int) onRequestVolunteers;
+
+  const VolunteerRequestDialog({
+    super.key,
+    required this.donation,
+    required this.isTransporting,
+    required this.onRequestVolunteers,
+  });
+
+  @override
+  State<VolunteerRequestDialog> createState() => _VolunteerRequestDialogState();
+}
+
+class _VolunteerRequestDialogState extends State<VolunteerRequestDialog> {
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.7,
+        height: MediaQuery.of(context).size.height * 0.6,
+        child: DefaultTabController(
+          length: 3,
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.donation.title,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TabBar(
+                      indicatorColor: Colors.white,
+                      labelColor: Colors.white,
+                      unselectedLabelColor: Colors.white70,
+                      tabs: const [
+                        Tab(text: 'Details'),
+                        Tab(text: 'Request Volunteers'),
+                        Tab(text: 'Volunteers'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _buildDetailsTab(context),
+                    VolunteerRequestDialogContent(
+                      donation: widget.donation,
+                      onRequestVolunteers: widget.onRequestVolunteers,
+                    ),
+                    _buildVolunteersListTab(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailsTab(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.donation.imageUrl != null && widget.donation.imageUrl!.isNotEmpty)
+            Center(
+              child: _buildDonationImage(widget.donation.imageUrl),
+            ),
+          const SizedBox(height: 16),
+          _buildDetailRow('Type', widget.donation.typeDisplay),
+          _buildDetailRow('Quantity', '${widget.donation.quantity} ${widget.donation.unit}'),
+          _buildDetailRow('Expiry', 
+            '${widget.donation.expiryDate.day}/${widget.donation.expiryDate.month}/${widget.donation.expiryDate.year}'),
+          _buildDetailRow('Pickup Address', widget.donation.pickupAddress),
+          _buildDetailRow('Pickup Time', 
+            widget.donation.pickupTime != null 
+              ? '${widget.donation.pickupTime!.hour}:${widget.donation.pickupTime!.minute.toString().padLeft(2, '0')}'
+              : 'Not specified'),
+          _buildDetailRow('Status', widget.donation.status),
+          const SizedBox(height: 24),
+          if (widget.isTransporting)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  if (widget.donation.volunteerId != null) {
+                    // Chat functionality would go here
+                  }
+                },
+                icon: const Icon(Icons.chat),
+                label: const Text('Chat with Volunteer'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVolunteersListTab() {
+    final volunteers = widget.donation.volunteerRequests
+        ?.where((r) => r.status == 'accepted')
+        .map((r) => r.volunteer)
+        .toList() ?? [];
+
+    return volunteers.isEmpty
+        ? const Center(
+            child: Text('No volunteers have accepted yet'),
+          )
+        : ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: volunteers.length,
+            itemBuilder: (context, index) {
+              final volunteer = volunteers[index];
+              if (volunteer == null) return const SizedBox.shrink();
+              
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: AppTheme.primaryColor,
+                    child: Text(
+                      '${volunteer.firstName[0]}${volunteer.lastName[0]}',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  title: Text('${volunteer.firstName} ${volunteer.lastName}'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.chat),
+                    onPressed: () => _startVolunteerChat(volunteer),
+                    color: AppTheme.primaryColor,
+                  ),
+                ),
+              );
+            },
+          );
+  }
+
+  Widget _buildDonationImage(String? imageUrl) {
+    final url = imageUrl?.trim();
+    if (url == null || url.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final fullUrl = url.startsWith('/') 
+        ? 'http://localhost:5000$url'
+        : url;
+
+    final Widget image = (fullUrl.startsWith('http://') || fullUrl.startsWith('https://'))
+        ? Image.network(
+            fullUrl,
+            height: 180,
+            width: 300,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+          )
+        : Image.file(
+            File(fullUrl),
+            height: 180,
+            width: 300,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+          );
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: image,
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _startVolunteerChat(dynamic volunteer) async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = authProvider.token!;
+
+      final result = await ApiService.createConversation(
+        token: token,
+        participant2Id: volunteer.id,
+        participant2Type: 'volunteer',
+      );
+
+      if (result['success'] == true) {
+        if (!mounted) return;
+        
+        Navigator.pop(context); // Close the dialog
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ConversationDetailScreen(
+              conversation: result['conversation'],
+              onMessageSent: () {},
+            ),
+          ),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['error'] ?? 'Failed to start chat')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('An error occurred while starting chat')),
+        );
+      }
+    }
+  }
+}
+
+class VolunteerRequestDialogContent extends StatefulWidget {
+  final Donation donation;
+  final Function(int) onRequestVolunteers;
+
+  const VolunteerRequestDialogContent({
+    super.key,
+    required this.donation,
+    required this.onRequestVolunteers,
+  });
+
+  @override
+  State<VolunteerRequestDialogContent> createState() => _VolunteerRequestDialogContentState();
+}
+
+class _VolunteerRequestDialogContentState extends State<VolunteerRequestDialogContent> {
+  int _volunteerCount = 1;
+
+  void _incrementVolunteerCount() {
+    setState(() {
+      if (_volunteerCount < 10) {
+        _volunteerCount++;
+      }
+    });
+  }
+
+  void _decrementVolunteerCount() {
+    setState(() {
+      if (_volunteerCount > 1) {
+        _volunteerCount--;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text(
+            'How many volunteers do you need?',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                onPressed: _decrementVolunteerCount,
+                icon: const Icon(Icons.remove_circle_outline, size: 32),
+                color: AppTheme.primaryColor,
+              ),
+              const SizedBox(width: 16),
+              Text(
+                '$_volunteerCount',
+                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(width: 16),
+              IconButton(
+                onPressed: _incrementVolunteerCount,
+                icon: const Icon(Icons.add_circle_outline, size: 32),
+                color: AppTheme.primaryColor,
+              ),
+            ],
+          ),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => widget.onRequestVolunteers(_volunteerCount),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+              child: const Text(
+                'Request Volunteers',
+                style: TextStyle(fontSize: 16),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

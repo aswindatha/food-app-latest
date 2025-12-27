@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import '../models/user.dart';
@@ -136,6 +137,59 @@ class ApiService {
       }
     } catch (e) {
       debugPrint('Get current user error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  // ========== UPLOAD APIS ==========
+
+  // Upload an image file and return the URL
+  static Future<Map<String, dynamic>> uploadImage({
+    required String token,
+    required File imageFile,
+  }) async {
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/upload/image'),
+      );
+      
+      // Add auth token
+      request.headers['Authorization'] = 'Bearer $token';
+      
+      // Add image file
+      final imageBytes = await imageFile.readAsBytes();
+      final multipartFile = http.MultipartFile.fromBytes(
+        'image',
+        imageBytes,
+        filename: imageFile.path.split('/').last,
+      );
+      request.files.add(multipartFile);
+      
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+      
+      debugPrint('Upload image response: ${response.statusCode} - ${response.body}');
+      
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'imageUrl': data['imageUrl'],
+          'filename': data['filename'],
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to upload image',
+        };
+      }
+    } catch (e) {
+      debugPrint('Upload image error: $e');
       return {
         'success': false,
         'error': 'Network error. Please check your connection.',
@@ -453,15 +507,67 @@ class ApiService {
           'success': true,
           'request': data['request'],
         };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to request volunteer',
+        };
       }
-
-      final errorData = jsonDecode(response.body);
-      return {
-        'success': false,
-        'error': errorData['message'] ?? 'Failed to request volunteer',
-      };
     } catch (e) {
       debugPrint('Request volunteer error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> requestMultipleVolunteers({
+    required String token,
+    required int donationId,
+    required int volunteerCount,
+    String? message,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/organization/donations/$donationId/request-multiple-volunteers'),
+        headers: _getHeaders(token: token),
+        body: jsonEncode({
+          'volunteerCount': volunteerCount,
+          if (message != null) 'message': message,
+        }),
+      );
+
+      debugPrint('Request multiple volunteers response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        final requests = <VolunteerRequest>[];
+
+        if (data['requests'] != null) {
+          for (final item in data['requests']) {
+            try {
+              requests.add(VolunteerRequest.fromJson(item));
+            } catch (e) {
+              debugPrint('Error parsing volunteer request item: $e');
+            }
+          }
+        }
+
+        return {
+          'success': true,
+          'requests': requests,
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to request volunteers',
+        };
+      }
+    } catch (e) {
+      debugPrint('Request multiple volunteers error: $e');
       return {
         'success': false,
         'error': 'Network error. Please check your connection.',
@@ -777,7 +883,7 @@ class ApiService {
 
       debugPrint('Create conversation response: ${response.statusCode} - ${response.body}');
 
-      if (response.statusCode == 201) {
+      if (response.statusCode == 201 || response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return {
           'success': true,

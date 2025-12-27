@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
+import '../../providers/auth_provider.dart';
 import '../../models/donation.dart';
 import '../../models/volunteer_request.dart';
-import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/app_theme.dart';
 import 'chat_screen.dart';
@@ -17,11 +18,43 @@ class VolunteerDashboard extends StatefulWidget {
   State<VolunteerDashboard> createState() => _VolunteerDashboardState();
 }
 
-class _VolunteerDashboardState extends State<VolunteerDashboard>
-    with SingleTickerProviderStateMixin {
+class _VolunteerDashboardState extends State<VolunteerDashboard> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _isLoading = false;
   String? _error;
+
+  Widget _buildDonationImage(String? imageUrl) {
+    final url = imageUrl?.trim();
+    if (url == null || url.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // If it's a relative URL (starts with /assets), prepend server base URL
+    final fullUrl = url.startsWith('/') 
+        ? 'http://localhost:5000$url'
+        : url;
+
+    final Widget image = (fullUrl.startsWith('http://') || fullUrl.startsWith('https://'))
+        ? Image.network(
+            fullUrl,
+            height: 180,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+          )
+        : Image.file(
+            File(fullUrl),
+            height: 180,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+          );
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: image,
+    );
+  }
 
   List<VolunteerRequest> _pendingRequests = [];
   List<Donation> _assignedInTransit = [];
@@ -155,25 +188,71 @@ class _VolunteerDashboardState extends State<VolunteerDashboard>
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
-        title: Text('Welcome, ${user?.firstName ?? 'Volunteer'}!'),
         backgroundColor: AppTheme.primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,
+        title: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: Colors.white.withOpacity(0.2),
+              child: const Icon(
+                Icons.person,
+                size: 20,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text('Welcome, ${user?.firstName ?? 'Volunteer'}!'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
           ),
+          IconButton(
+            icon: const Icon(Icons.person),
+            onPressed: () => _showProfileDialog(context),
+          ),
           PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'logout') {
+              if (value == 'profile') {
+                _showProfileDialog(context);
+              } else if (value == 'logout') {
                 authProvider.logout();
               }
             },
             itemBuilder: (context) => const [
               PopupMenuItem(
+                value: 'profile',
+                child: Row(
+                  children: [
+                    Icon(Icons.person),
+                    SizedBox(width: 8),
+                    Text('Profile'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings),
+                    SizedBox(width: 8),
+                    Text('Settings'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
                 value: 'logout',
-                child: Text('Logout'),
+                child: Row(
+                  children: [
+                    Icon(Icons.logout),
+                    SizedBox(width: 8),
+                    Text('Logout'),
+                  ],
+                ),
               ),
             ],
           ),
@@ -459,6 +538,8 @@ class _VolunteerDashboardState extends State<VolunteerDashboard>
             mainAxisSize: MainAxisSize.min,
             children: [
               if (donation != null) ...[
+                _buildDonationImage(donation.imageUrl),
+                if ((donation.imageUrl ?? '').trim().isNotEmpty) const SizedBox(height: 12),
                 Text('Type: ${donation.typeDisplay}'),
                 const SizedBox(height: 8),
                 Text('Quantity: ${donation.quantity} ${donation.unit}'),
@@ -508,6 +589,8 @@ class _VolunteerDashboardState extends State<VolunteerDashboard>
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              _buildDonationImage(donation.imageUrl),
+              if ((donation.imageUrl ?? '').trim().isNotEmpty) const SizedBox(height: 12),
               Text('Type: ${donation.typeDisplay}'),
               const SizedBox(height: 8),
               Text('Quantity: ${donation.quantity} ${donation.unit}'),
@@ -530,6 +613,300 @@ class _VolunteerDashboardState extends State<VolunteerDashboard>
             child: const Text('Close'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showProfileDialog(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final user = authProvider.user;
+
+    if (user == null) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Profile Header
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 30,
+                    backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+                    child: Icon(
+                      Icons.person,
+                      size: 30,
+                      color: AppTheme.primaryColor,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${user.firstName} ${user.lastName}',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryColor,
+                          ),
+                        ),
+                        Text(
+                          user.role.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    color: Colors.grey,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              
+              // Profile Information
+              const Text(
+                'Profile Information',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryColor,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildProfileInfoRow('Username', user.username),
+              _buildProfileInfoRow('Email', user.email),
+              if (user.phone != null) 
+                _buildProfileInfoRow('Phone', user.phone!),
+              _buildProfileInfoRow('Member Since', 
+                '${user.createdAt.day}/${user.createdAt.month}/${user.createdAt.year}'),
+              
+              const SizedBox(height: 24),
+              
+              // Action Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Settings coming soon!')),
+                        );
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppTheme.primaryColor),
+                        foregroundColor: AppTheme.primaryColor,
+                      ),
+                      child: const Text('Settings'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _showChangePasswordDialog(context);
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppTheme.primaryColor),
+                        foregroundColor: AppTheme.primaryColor,
+                      ),
+                      child: const Text('Change Password'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        authProvider.logout();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryColor,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Logout'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: Colors.black87,
+                fontSize: 16,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangePasswordDialog(BuildContext context) {
+    final TextEditingController currentPasswordController = TextEditingController();
+    final TextEditingController newPasswordController = TextEditingController();
+    final TextEditingController confirmPasswordController = TextEditingController();
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.lock, color: AppTheme.primaryColor),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Change Password',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.primaryColor,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                      color: Colors.grey,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                
+                TextField(
+                  controller: currentPasswordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Current Password',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                TextField(
+                  controller: newPasswordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'New Password',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                TextField(
+                  controller: confirmPasswordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm New Password',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                
+                if (isLoading)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppTheme.primaryColor),
+                            foregroundColor: AppTheme.primaryColor,
+                          ),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            if (newPasswordController.text != confirmPasswordController.text) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Passwords do not match')),
+                              );
+                              return;
+                            }
+                            
+                            setState(() => isLoading = true);
+                            
+                            // TODO: Implement password change API call
+                            await Future.delayed(const Duration(seconds: 2));
+                            
+                            setState(() => isLoading = false);
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Password changed successfully')),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primaryColor,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Change Password'),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -66,6 +66,30 @@ class Conversation {
     return '${participant2.firstName} ${participant2.lastName}';
   }
 
+  // Get the name of the other participant (not the current user)
+  String getOtherParticipantName(int currentUserId) {
+    if (participant1Id == currentUserId) {
+      return '${participant2.firstName} ${participant2.lastName}';
+    } else {
+      return '${participant1.firstName} ${participant1.lastName}';
+    }
+  }
+
+  // Get the other participant user object
+  User getOtherParticipant(int currentUserId) {
+    if (participant1Id == currentUserId) {
+      return participant2;
+    } else {
+      return participant1;
+    }
+  }
+
+  // Get the type of the other participant
+  String getOtherParticipantType(int currentUserId) {
+    final otherParticipant = getOtherParticipant(currentUserId);
+    return otherParticipant.role;
+  }
+
   String get lastMessageDisplay {
     if (lastMessage == null || lastMessage!.isEmpty) {
       return 'No messages yet';

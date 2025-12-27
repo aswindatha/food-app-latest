@@ -2,9 +2,8 @@ const { DataTypes } = require('sequelize');
 const { sequelize } = process.env.NODE_ENV === 'test' 
   ? require('../config/test-db') 
   : require('../config/db');
-const User = require('./User');
-const Donation = require('./Donation');
 
+// VolunteerRequest model for tracking volunteer requests
 const VolunteerRequest = sequelize.define('VolunteerRequest', {
   id: {
     type: DataTypes.INTEGER,
@@ -15,7 +14,7 @@ const VolunteerRequest = sequelize.define('VolunteerRequest', {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: Donation,
+      model: 'donations',
       key: 'id',
     },
     onUpdate: 'CASCADE',
@@ -25,7 +24,7 @@ const VolunteerRequest = sequelize.define('VolunteerRequest', {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: User,
+      model: 'users',
       key: 'id',
     },
     onUpdate: 'CASCADE',
@@ -35,7 +34,7 @@ const VolunteerRequest = sequelize.define('VolunteerRequest', {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: User,
+      model: 'users',
       key: 'id',
     },
     onUpdate: 'CASCADE',
@@ -66,17 +65,6 @@ const VolunteerRequest = sequelize.define('VolunteerRequest', {
       fields: ['volunteer_id'],
     },
   ],
-});
-
-// Define associations
-VolunteerRequest.belongsTo(Donation, { as: 'donation', foreignKey: 'donation_id' });
-VolunteerRequest.belongsTo(User, { as: 'organization', foreignKey: 'organization_id' });
-VolunteerRequest.belongsTo(User, { as: 'volunteer', foreignKey: 'volunteer_id' });
-
-// Add methods to Donation model for volunteer requests
-Donation.VolunteerRequests = Donation.hasMany(VolunteerRequest, { 
-  as: 'volunteerRequests',
-  foreignKey: 'donation_id' 
 });
 
 module.exports = VolunteerRequest;

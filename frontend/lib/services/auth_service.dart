@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
@@ -157,5 +158,50 @@ class AuthService {
   // Logout user
   static Future<void> logout() async {
     await clearAuthData();
+  }
+
+  // Change password
+  static Future<Map<String, dynamic>> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final token = await getToken();
+      
+      if (token == null) {
+        return {
+          'success': false,
+          'error': 'Authentication required',
+        };
+      }
+
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/auth/change-password'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return {'success': true};
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to change password',
+        };
+      }
+    } catch (e) {
+      print('Change password service error: $e');
+      return {
+        'success': false,
+        'error': 'Change password service error',
+      };
+    }
   }
 }

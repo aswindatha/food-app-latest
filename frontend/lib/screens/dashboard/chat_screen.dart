@@ -290,24 +290,30 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildConversationCard(Conversation conversation) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final currentUserId = authProvider.user!.id;
+    final otherParticipant = conversation.getOtherParticipant(currentUserId);
+    
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: AppTheme.primaryColor,
           child: Text(
-            '${conversation.participant2.firstName[0]}${conversation.participant2.lastName[0]}',
+            '${otherParticipant.firstName[0]}${otherParticipant.lastName[0]}',
             style: const TextStyle(color: Colors.white),
           ),
         ),
         title: Text(
-          conversation.displayName,
+          conversation.getOtherParticipantName(currentUserId),
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(conversation.participant2TypeDisplay),
+            Text(
+              otherParticipant.role.toUpperCase(),
+            ),
             const SizedBox(height: 4),
             Text(
               conversation.lastMessageDisplay,
