@@ -32,6 +32,56 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // Login method
+  Future<bool> login({
+    required String emailOrUsername,
+    required String password,
+  }) async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      final response = await AuthService.login(
+        emailOrUsername: emailOrUsername,
+        password: password,
+      );
+
+      if (response['success'] == true) {
+        _user = await AuthService.getUser();
+        _token = response['token'];
+        await AuthService.saveToken(response['token']);
+        // Schedule notification after build cycle
+        Future.microtask(() => notifyListeners());
+        return true;
+      } else {
+        _setError(response['error'] ?? 'Login failed');
+        return false;
+      }
+    } catch (e) {
+      _setError('Network error. Please check your connection.');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // Logout method
+  Future<void> logout() async {
+    _setLoading(true);
+    try {
+      await AuthService.logout();
+      _user = null;
+      _token = null;
+      await AuthService.removeToken();
+      // Schedule notification after build cycle
+      Future.microtask(() => notifyListeners());
+    } catch (e) {
+      _setError('Failed to logout');
+    } finally {
+      _setLoading(false);
+    }
+  }
+
   // Register user
   Future<bool> register({
     required String username,
@@ -71,37 +121,6 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // Login user
-  Future<bool> login({
-    required String emailOrUsername,
-    required String password,
-  }) async {
-    _setLoading(true);
-    _clearError();
-    
-    try {
-      final result = await AuthService.login(
-        emailOrUsername: emailOrUsername,
-        password: password,
-      );
-
-      if (result['success']) {
-        _user = result['user'];
-        _token = result['token'];
-        notifyListeners();
-        return true;
-      } else {
-        _setError(result['error'] ?? 'Login failed');
-        return false;
-      }
-    } catch (e) {
-      _setError('Login failed: $e');
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
   // Change password
   Future<Map<String, dynamic>> changePassword(
     String currentPassword,
@@ -125,22 +144,6 @@ class AuthProvider extends ChangeNotifier {
     } catch (e) {
       _setError('Password change failed: $e');
       return {'success': false, 'message': 'Password change failed: $e'};
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // Logout user
-  Future<void> logout() async {
-    _setLoading(true);
-    try {
-      await AuthService.logout();
-      _user = null;
-      _token = null;
-      _clearError();
-      notifyListeners();
-    } catch (e) {
-      _setError('Logout failed: $e');
     } finally {
       _setLoading(false);
     }

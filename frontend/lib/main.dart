@@ -8,6 +8,7 @@ import 'screens/auth/registration_screen.dart';
 import 'screens/dashboard/donor_dashboard_new.dart';
 import 'screens/dashboard/volunteer_dashboard.dart';
 import 'screens/dashboard/organization_dashboard.dart';
+import 'screens/dashboard/admin_dashboard.dart';
 import 'screens/splash_screen.dart';
 import 'utils/app_theme.dart';
 
@@ -59,6 +60,8 @@ class FoodApp extends StatelessWidget {
           if (user == null) return const LoginScreen();
           
           switch (user.role) {
+            case 'admin':
+              return const AdminDashboard();
             case 'donor':
               return const DonorDashboardNew();
             case 'volunteer':

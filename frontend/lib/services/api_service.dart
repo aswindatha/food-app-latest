@@ -1,15 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 import 'package:flutter/foundation.dart';
 import '../models/user.dart';
 import '../models/donation.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 import '../models/volunteer_request.dart';
+import 'connection_service.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://localhost:5000/api';
+  static String get baseUrl => ConnectionService.baseUrl;
   
   // Headers for API requests
   static Map<String, String> _getHeaders({String? token}) {
@@ -143,7 +146,6 @@ class ApiService {
       };
     }
   }
-
   // ========== UPLOAD APIS ==========
 
   // Upload an image file and return the URL
@@ -156,25 +158,45 @@ class ApiService {
         'POST',
         Uri.parse('$baseUrl/upload/image'),
       );
-      
+
       // Add auth token
       request.headers['Authorization'] = 'Bearer $token';
-      
-      // Add image file
+
       final imageBytes = await imageFile.readAsBytes();
+      final fileName =
+          imageFile.path.split(Platform.pathSeparator).last;
+
+      // 🔥 Auto-detect MIME type (supports all image formats)
+      final mimeType = lookupMimeType(
+        imageFile.path,
+        headerBytes: imageBytes,
+      );
+
+      // Ensure uploaded file is an image
+      if (mimeType == null || !mimeType.startsWith('image/')) {
+        return {
+          'success': false,
+          'error': 'Unsupported file type. Please upload an image.',
+        };
+      }
+
       final multipartFile = http.MultipartFile.fromBytes(
         'image',
         imageBytes,
-        filename: imageFile.path.split('/').last,
+        filename: fileName,
+        contentType: MediaType.parse(mimeType),
       );
+
       request.files.add(multipartFile);
-      
+
       final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-      
-      debugPrint('Upload image response: ${response.statusCode} - ${response.body}');
-      
-      if (response.statusCode == 201) {
+      final response =
+          await http.Response.fromStream(streamedResponse);
+
+      debugPrint(
+          'Upload image response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return {
           'success': true,
@@ -185,7 +207,8 @@ class ApiService {
         final errorData = jsonDecode(response.body);
         return {
           'success': false,
-          'error': errorData['message'] ?? 'Failed to upload image',
+          'error':
+              errorData['message'] ?? 'Failed to upload image',
         };
       }
     } catch (e) {
@@ -978,6 +1001,395 @@ class ApiService {
       }
     } catch (e) {
       debugPrint('Get available users error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  // Claim donation with proofs
+  static Future<Map<String, dynamic>> claimDonationWithProofs({
+    required String token,
+    required int donationId,
+    required List<Map<String, dynamic>> proofs,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/organization/donations/$donationId/claim-with-proofs'),
+        headers: _getHeaders(token: token),
+        body: jsonEncode({
+          'proofs': proofs,
+        }),
+      );
+
+      debugPrint('Complete donation with proofs response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Donation completed successfully',
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to complete donation',
+        };
+      }
+    } catch (e) {
+      debugPrint('Complete donation with proofs error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  // Submit delivery review
+  static Future<Map<String, dynamic>> submitDeliveryReview({
+    required String token,
+    required int donationId,
+    required int rating,
+    required String reviewText,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/volunteer/donations/$donationId/review'),
+        headers: _getHeaders(token: token),
+        body: jsonEncode({
+          'rating': rating,
+          'review_text': reviewText,
+        }),
+      );
+
+      debugPrint('Submit review response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Review submitted successfully',
+          'review': data['review'],
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to submit review',
+        };
+      }
+    } catch (e) {
+      debugPrint('Submit review error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  // Admin API methods
+  static Future<Map<String, dynamic>> getAdminStats({required String token}) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/admin/dashboard/stats'),
+        headers: _getHeaders(token: token),
+      );
+
+      debugPrint('Get admin stats response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'data': data,
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to load admin stats',
+        };
+      }
+    } catch (e) {
+      debugPrint('Get admin stats error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> getAllUsers({
+    required String token,
+    int page = 1,
+    int limit = 10,
+    String sortBy = 'created_at',
+    String sortOrder = 'DESC',
+    String? role,
+    String? search,
+  }) async {
+    try {
+      final queryParams = <String, String>{
+        'page': page.toString(),
+        'limit': limit.toString(),
+        'sortBy': sortBy,
+        'sortOrder': sortOrder,
+      };
+      
+      if (role != null) queryParams['role'] = role!;
+      if (search != null && search!.isNotEmpty) queryParams['search'] = search!;
+
+      final uri = Uri.parse('$baseUrl/admin/users').replace(queryParameters: queryParams);
+      
+      final response = await http.get(
+        uri,
+        headers: _getHeaders(token: token),
+      );
+
+      debugPrint('Get all users response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'data': data,
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to load users',
+        };
+      }
+    } catch (e) {
+      debugPrint('Get all users error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> getAllDonations({
+    required String token,
+    int page = 1,
+    int limit = 10,
+    String sortBy = 'created_at',
+    String sortOrder = 'DESC',
+    String? status,
+    String? search,
+  }) async {
+    try {
+      final queryParams = <String, String>{
+        'page': page.toString(),
+        'limit': limit.toString(),
+        'sortBy': sortBy,
+        'sortOrder': sortOrder,
+      };
+      
+      if (status != null) queryParams['status'] = status!;
+      if (search != null && search!.isNotEmpty) queryParams['search'] = search!;
+
+      final uri = Uri.parse('$baseUrl/admin/donations').replace(queryParameters: queryParams);
+      
+      final response = await http.get(
+        uri,
+        headers: _getHeaders(token: token),
+      );
+
+      debugPrint('Get all donations response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'data': data,
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to load donations',
+        };
+      }
+    } catch (e) {
+      debugPrint('Get all donations error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateUser({
+    required String token,
+    required int userId,
+    String? username,
+    String? email,
+    String? firstName,
+    String? lastName,
+    String? role,
+    String? phone,
+  }) async {
+    try {
+      final body = jsonEncode({
+        if (username != null) 'username': username,
+        if (email != null) 'email': email,
+        if (firstName != null) 'first_name': firstName,
+        if (lastName != null) 'last_name': lastName,
+        if (role != null) 'role': role,
+        if (phone != null) 'phone': phone,
+      });
+
+      final response = await http.put(
+        Uri.parse('$baseUrl/admin/users/$userId'),
+        headers: _getHeaders(token: token),
+        body: body,
+      );
+
+      debugPrint('Update user response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'message': data['message'] ?? 'User updated successfully',
+          'data': data['data'],
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to update user',
+        };
+      }
+    } catch (e) {
+      debugPrint('Update user error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> adminUpdateDonation({
+    required String token,
+    required int donationId,
+    String? title,
+    String? description,
+    String? donationType,
+    int? quantity,
+    String? unit,
+    String? expiryDate,
+    String? pickupAddress,
+    String? status,
+  }) async {
+    try {
+      final body = jsonEncode({
+        if (title != null) 'title': title,
+        if (description != null) 'description': description,
+        if (donationType != null) 'donation_type': donationType,
+        if (quantity != null) 'quantity': quantity,
+        if (unit != null) 'unit': unit,
+        if (expiryDate != null) 'expiry_date': expiryDate,
+        if (pickupAddress != null) 'pickup_address': pickupAddress,
+        if (status != null) 'status': status,
+      });
+
+      final response = await http.put(
+        Uri.parse('$baseUrl/admin/donations/$donationId'),
+        headers: _getHeaders(token: token),
+        body: body,
+      );
+
+      debugPrint('Update donation response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Donation updated successfully',
+          'data': data['data'],
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to update donation',
+        };
+      }
+    } catch (e) {
+      debugPrint('Update donation error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> deleteUser({
+    required String token,
+    required int userId,
+  }) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/admin/users/$userId'),
+        headers: _getHeaders(token: token),
+      );
+
+      debugPrint('Delete user response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'message': data['message'] ?? 'User deleted successfully',
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to delete user',
+        };
+      }
+    } catch (e) {
+      debugPrint('Delete user error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> adminDeleteDonation({
+    required String token,
+    required int donationId,
+  }) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$baseUrl/admin/donations/$donationId'),
+        headers: _getHeaders(token: token),
+      );
+
+      debugPrint('Delete donation response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Donation deleted successfully',
+        };
+      } else {
+        final errorData = jsonDecode(response.body);
+        return {
+          'success': false,
+          'error': errorData['message'] ?? 'Failed to delete donation',
+        };
+      }
+    } catch (e) {
+      debugPrint('Delete donation error: $e');
       return {
         'success': false,
         'error': 'Network error. Please check your connection.',

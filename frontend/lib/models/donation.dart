@@ -1,5 +1,6 @@
 import 'user.dart';
 import 'volunteer_request.dart';
+import 'delivery_review.dart';
 
 class Donation {
   final int id;
@@ -22,6 +23,7 @@ class Donation {
   final User? volunteer;
   final User? organization;
   final List<VolunteerRequest>? volunteerRequests;
+  final List<DeliveryReview>? reviews;
 
   Donation({
     required this.id,
@@ -44,6 +46,7 @@ class Donation {
     this.volunteer,
     this.organization,
     this.volunteerRequests,
+    this.reviews,
   });
 
   factory Donation.fromJson(Map<String, dynamic> json) {
@@ -75,12 +78,22 @@ class Donation {
       volunteerId: json['volunteer_id'],
       organizationId: json['organization_id'],
       imageUrl: json['image_url'],
-      createdAt: DateTime.parse(json['created_at'] ?? DateTime.now().toIso8601String()),
-      updatedAt: DateTime.parse(json['updated_at'] ?? DateTime.now().toIso8601String()),
+      createdAt: DateTime.parse(json['created_at'] ?? json['createdAt'] ?? DateTime.now().toIso8601String()),
+      updatedAt: DateTime.parse(json['updated_at'] ?? json['updatedAt'] ?? DateTime.now().toIso8601String()),
       donor: json['donor'] != null ? User.fromJson(json['donor']) : null,
       volunteer: json['volunteer'] != null ? User.fromJson(json['volunteer']) : null,
       organization: json['organization'] != null ? User.fromJson(json['organization']) : null,
       volunteerRequests: volunteerRequestsList.isEmpty ? null : volunteerRequestsList,
+      reviews: json['reviews'] != null && json['reviews'] is List 
+          ? (json['reviews'] as List).map((r) {
+              try {
+                return DeliveryReview.fromJson(r);
+              } catch (e) {
+                print('Error parsing review: $e');
+                return null;
+              }
+            }).where((r) => r != null).cast<DeliveryReview>().toList()
+          : null,
     );
   }
 
@@ -126,6 +139,7 @@ class Donation {
     User? volunteer,
     User? organization,
     List<VolunteerRequest>? volunteerRequests,
+    List<DeliveryReview>? reviews,
   }) {
     return Donation(
       id: id ?? this.id,
@@ -148,6 +162,7 @@ class Donation {
       volunteer: volunteer ?? this.volunteer,
       organization: organization ?? this.organization,
       volunteerRequests: volunteerRequests ?? this.volunteerRequests,
+      reviews: reviews ?? this.reviews,
     );
   }
 

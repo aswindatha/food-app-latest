@@ -39,6 +39,17 @@ class AuthService {
     }
   }
 
+  // Save token only
+  static Future<void> saveToken(String token) async {
+    try {
+      await _secureStorage.write(key: _tokenKey, value: token);
+      print('Token saved successfully');
+    } catch (e) {
+      print('Error saving token: $e');
+      rethrow;
+    }
+  }
+
   // Get stored user data
   static Future<User?> getUser() async {
     try {
@@ -157,6 +168,11 @@ class AuthService {
 
   // Logout user
   static Future<void> logout() async {
+    await clearAuthData();
+  }
+
+  // Remove token (alias for clearAuthData)
+  static Future<void> removeToken() async {
     await clearAuthData();
   }
 

@@ -6,8 +6,10 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/donation.dart';
 import '../../models/volunteer_request.dart';
+import '../../models/delivery_review.dart';
 import '../../services/api_service.dart';
 import '../../utils/app_theme.dart';
+import '../../utils/image_url_helper.dart';
 import 'chat_screen.dart';
 import 'conversation_detail_screen.dart';
 
@@ -29,10 +31,7 @@ class _VolunteerDashboardState extends State<VolunteerDashboard> with SingleTick
       return const SizedBox.shrink();
     }
 
-    // If it's a relative URL (starts with /assets), prepend server base URL
-    final fullUrl = url.startsWith('/') 
-        ? 'http://localhost:5000$url'
-        : url;
+    final fullUrl = ImageUrlHelper.formatImageUrl(url);
 
     final Widget image = (fullUrl.startsWith('http://') || fullUrl.startsWith('https://'))
         ? Image.network(
@@ -90,28 +89,32 @@ class _VolunteerDashboardState extends State<VolunteerDashboard> with SingleTick
         return;
       }
 
+      // First, get pending requests and assigned donations
       final results = await Future.wait([
         ApiService.getVolunteerRequests(token: token, status: 'pending'),
         ApiService.getVolunteerAssignedDonations(token: token),
+        ApiService.getVolunteerAssignedDonations(token: token, status: 'completed'),
       ]);
 
       final requestsResult = results[0];
       final assignedResult = results[1];
+      final completedResult = results[2];
 
-      if (requestsResult['success'] == true && assignedResult['success'] == true) {
+      if (requestsResult['success'] == true && assignedResult['success'] == true && completedResult['success'] == true) {
         final requests = (requestsResult['requests'] as List<VolunteerRequest>);
         final assigned = (assignedResult['donations'] as List<Donation>);
+        final completed = (completedResult['donations'] as List<Donation>);
 
         setState(() {
           _pendingRequests = requests;
           _assignedInTransit = assigned.where((d) => d.status == 'in_transit').toList();
-          _assignedCompleted = assigned.where((d) => d.status == 'completed').toList();
+          _assignedCompleted = completed;
           _isLoading = false;
         });
       } else {
         setState(() {
           _isLoading = false;
-          _error = requestsResult['error'] ?? assignedResult['error'] ?? 'Failed to load data';
+          _error = requestsResult['error'] ?? assignedResult['error'] ?? completedResult['error'] ?? 'Failed to load data';
         });
       }
     } catch (e) {
@@ -342,6 +345,9 @@ class _VolunteerDashboardState extends State<VolunteerDashboard> with SingleTick
     );
   }
 
+  
+  
+  
   Widget _buildDeliveriesTab() {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor));
@@ -478,6 +484,270 @@ class _VolunteerDashboardState extends State<VolunteerDashboard> with SingleTick
     ).animate().fadeIn().slideY();
   }
 
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: Colors.grey[600]),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCompletedDonationDialog(Donation donation) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(donation.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (donation.imageUrl != null && donation.imageUrl!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      donation.imageUrl!,
+                      height: 150,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+              _buildDetailRow(Icons.category, 'Type:', donation.typeDisplay),
+              _buildDetailRow(Icons.scale, 'Quantity:', '${donation.quantity} ${donation.unit}'),
+              if (donation.description != null && donation.description!.isNotEmpty)
+                _buildDetailRow(Icons.description, 'Description:', donation.description!),
+              if (donation.pickupAddress != null && donation.pickupAddress!.isNotEmpty)
+                _buildDetailRow(Icons.location_on, 'Pickup:', donation.pickupAddress!),
+              const SizedBox(height: 8),
+              const Divider(),
+              const Text(
+                'This delivery has been completed successfully!',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+              ),
+              if (donation.reviews != null && donation.reviews!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Your Review:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                ..._buildReviewDisplay(_getCurrentUserReview(donation)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          if (!_hasCurrentUserReviewed(donation))
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _showReviewDialog(donation);
+              },
+              child: const Text('Add Review'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _hasCurrentUserReviewed(Donation donation) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final currentUser = authProvider.user;
+    
+    if (currentUser == null || donation.reviews == null || donation.reviews!.isEmpty) {
+      return false;
+    }
+    
+    // Check if current user has reviewed this donation
+    return donation.reviews!.any((review) => review.volunteerId == currentUser.id);
+  }
+
+  DeliveryReview? _getCurrentUserReview(Donation donation) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final currentUser = authProvider.user;
+    
+    if (currentUser == null || donation.reviews == null || donation.reviews!.isEmpty) {
+      return null;
+    }
+    
+    // Find the current user's review
+    try {
+      return donation.reviews!.firstWhere((review) => review.volunteerId == currentUser.id);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  List<Widget> _buildReviewDisplay(DeliveryReview? review) {
+    if (review == null) return [];
+    
+    return [
+      Row(
+        children: [
+          ...List.generate(5, (index) => Icon(
+            index < review.rating 
+              ? Icons.star 
+              : Icons.star_border,
+            color: Colors.amber,
+            size: 20,
+          )),
+          const SizedBox(width: 8),
+          Text(
+            '(${review.rating}/5)',
+            style: TextStyle(color: Colors.grey[600]),
+          ),
+        ],
+      ),
+      if (review.reviewText != null && review.reviewText!.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            review.reviewText!,
+            style: TextStyle(color: Colors.grey[700]),
+          ),
+        ),
+    ];
+  }
+
+  void _showReviewDialog(Donation donation) {
+    int _rating = 0;
+    final _reviewController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Review Delivery'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'How was your experience delivering ${donation.title}?',
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (index) => IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _rating = index + 1;
+                    });
+                  },
+                  icon: Icon(
+                    index < _rating ? Icons.star : Icons.star_border,
+                    color: Colors.amber,
+                    size: 32,
+                  ),
+                )),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _reviewController,
+                decoration: const InputDecoration(
+                  labelText: 'Additional comments (optional)',
+                  border: OutlineInputBorder(),
+                  hintText: 'Share your experience...',
+                ),
+                maxLines: 3,
+                maxLength: 500,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: _rating > 0 ? () async {
+                Navigator.pop(context);
+                await _submitReview(donation, _rating, _reviewController.text.trim());
+              } : null,
+              child: const Text('Submit'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submitReview(Donation donation, int rating, String reviewText) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final token = authProvider.token;
+
+    if (token == null) return;
+
+    try {
+      final result = await ApiService.submitDeliveryReview(
+        token: token,
+        donationId: donation.id,
+        rating: rating,
+        reviewText: reviewText,
+      );
+
+      if (result['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Review submitted successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        // Refresh data to update the UI
+        _loadData();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error'] ?? 'Failed to submit review'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('An error occurred while submitting review'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  
   Widget _buildSectionHeader(String title, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -573,44 +843,6 @@ class _VolunteerDashboardState extends State<VolunteerDashboard> with SingleTick
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
             child: const Text('Accept'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showCompletedDonationDialog(Donation donation) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(donation.title),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildDonationImage(donation.imageUrl),
-              if ((donation.imageUrl ?? '').trim().isNotEmpty) const SizedBox(height: 12),
-              Text('Type: ${donation.typeDisplay}'),
-              const SizedBox(height: 8),
-              Text('Quantity: ${donation.quantity} ${donation.unit}'),
-              const SizedBox(height: 8),
-              Text('Status: ${donation.status}'),
-              const SizedBox(height: 8),
-              Text('Pickup Address: ${donation.pickupAddress}'),
-              const SizedBox(height: 8),
-              Text('Expires: ${donation.expiryDate.day}/${donation.expiryDate.month}/${donation.expiryDate.year}'),
-              if (donation.description.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text('Details: ${donation.description}'),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
           ),
         ],
       ),
@@ -906,6 +1138,177 @@ class _VolunteerDashboardState extends State<VolunteerDashboard> with SingleTick
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class ReviewDialog extends StatefulWidget {
+  final Donation donation;
+
+  const ReviewDialog({
+    super.key,
+    required this.donation,
+  });
+
+  @override
+  State<ReviewDialog> createState() => _ReviewDialogState();
+}
+
+class _ReviewDialogState extends State<ReviewDialog> {
+  final _reviewController = TextEditingController();
+  int _rating = 5;
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _reviewController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitReview() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = authProvider.token!;
+
+      final result = await ApiService.submitDeliveryReview(
+        token: token,
+        donationId: widget.donation.id,
+        rating: _rating,
+        reviewText: _reviewController.text,
+      );
+
+      if (result['success'] == true) {
+        if (!mounted) return;
+        
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Review submitted successfully')),
+        );
+        // Refresh parent data
+        Navigator.of(context, rootNavigator: true).pop();
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['error'] ?? 'Failed to submit review')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('An error occurred while submitting review')),
+        );
+      }
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.8,
+        height: MediaQuery.of(context).size.height * 0.6,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.star, color: Colors.amber, size: 24),
+                const SizedBox(width: 12),
+                const Text(
+                  'Add Review',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.amber,
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                  color: Colors.grey,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Share your experience about this donation:',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: TextField(
+                controller: _reviewController,
+                decoration: const InputDecoration(
+                  hintText: 'Share your experience about this donation',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 4,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Rating:',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(5, (index) {
+                return IconButton(
+                  onPressed: () => setState(() => _rating = index + 1),
+                  icon: Icon(
+                    index < _rating ? Icons.star : Icons.star_border,
+                    color: Colors.amber,
+                    size: 32,
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.grey),
+                      foregroundColor: Colors.grey,
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _submitReview,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.amber,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text('Submit Review'),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
