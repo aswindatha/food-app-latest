@@ -19,4 +19,10 @@ router.get('/donations/assigned', volunteerController.getAssignedDonations);
 // Update donation status (mark as completed)
 router.put('/donations/:id/status', volunteerController.updateDonationStatus);
 
+// Get completed deliveries
+router.get('/donations/completed', volunteerController.getCompletedDeliveries);
+
+// Submit delivery review
+router.post('/donations/:id/review', volunteerController.submitDeliveryReview);
+
 module.exports = router;

@@ -25,4 +25,7 @@ router.post('/donations/:id/request-multiple-volunteers', organizationController
 // Update donation status (in_transit, completed, cancelled)
 router.put('/donations/:id/status', organizationController.updateDonationStatus);
 
+// Claim donation with proofs (for in_transit donations)
+router.post('/donations/:id/claim-with-proofs', organizationController.claimDonationWithProofs);
+
 module.exports = router;

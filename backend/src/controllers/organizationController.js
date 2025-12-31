@@ -4,6 +4,7 @@ const Donation = require('../models/Donation');
 const User = require('../models/User');
 const VolunteerRequest = require('../models/VolunteerRequest');
 const Conversation = require('../models/Conversation');
+const { DonationProof } = require('../models');
 
 // Helper function to update expired donations
 const updateExpiredDonations = async () => {
@@ -377,6 +378,57 @@ const updateDonationStatus = async (req, res) => {
   }
 };
 
+// Claim donation with proofs (for in_transit donations)
+const claimDonationWithProofs = async (req, res) => {
+  const { id } = req.params;
+  const { proofs } = req.body; // Array of proof objects with image_url and description
+
+  try {
+    const donation = await Donation.findByPk(id);
+
+    if (!donation) {
+      return res.status(404).json({ message: 'Donation not found' });
+    }
+
+    if (donation.organization_id !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to claim this donation' });
+    }
+
+    if (donation.status !== 'in_transit') {
+      return res.status(400).json({ message: 'Can only claim donations that are in transit' });
+    }
+
+    if (!proofs || proofs.length === 0) {
+      return res.status(400).json({ message: 'At least one proof image is required' });
+    }
+
+    // Start a transaction
+    const result = await sequelize.transaction(async (t) => {
+      // Update donation status to completed
+      await donation.update({
+        status: 'completed'
+      }, { transaction: t });
+
+      // Create proof records
+      const proofRecords = proofs.map(proof => ({
+        donation_id: id,
+        organization_id: req.user.id,
+        image_url: proof.image_url,
+        description: proof.description || null
+      }));
+
+      await DonationProof.bulkCreate(proofRecords, { transaction: t });
+
+      return { success: true, message: 'Donation completed successfully' };
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error completing donation:', error);
+    res.status(500).json({ message: 'An error occurred while completing donation' });
+  }
+};
+
 module.exports = {
   getAvailableDonations,
   claimDonation,
@@ -384,4 +436,5 @@ module.exports = {
   requestMultipleVolunteers,
   getClaimedDonations,
   updateDonationStatus,
+  claimDonationWithProofs,
 };

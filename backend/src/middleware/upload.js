@@ -29,10 +29,14 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
+  console.log('File mimetype:', file.mimetype);
+  console.log('File originalname:', file.originalname);
+  
   // Accept only image files
   if (file.mimetype.startsWith('image/')) {
     cb(null, true);
   } else {
+    console.log('Rejected file - mimetype does not start with image/');
     cb(new Error('Only image files are allowed'), false);
   }
 };

@@ -1,5 +1,5 @@
 const { sequelize } = require('./src/config/db');
-const { User, Donation, VolunteerRequest, Conversation, Message } = require('./src/models');
+const { User, Donation, VolunteerRequest, Conversation, Message, DonationProof, DeliveryReview } = require('./src/models');
 
 async function syncDatabase() {
   try {

@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const VolunteerRequest = require('../models/VolunteerRequest');
 const Donation = require('../models/Donation');
 const User = require('../models/User');
+const { DeliveryReview } = require('../models');
 
 // Get volunteer requests for a volunteer
 const getVolunteerRequests = async (req, res) => {
@@ -190,9 +191,93 @@ const updateDonationStatus = async (req, res) => {
   }
 };
 
+// Get completed deliveries for volunteer
+const getCompletedDeliveries = async (req, res) => {
+  try {
+    const donations = await Donation.findAll({
+      where: {
+        volunteer_id: req.user.id,
+        status: 'completed'
+      },
+      include: [
+        { model: User, as: 'donor', attributes: ['id', 'username', 'first_name', 'last_name'] },
+        { model: User, as: 'organization', attributes: ['id', 'username', 'first_name', 'last_name'] },
+        { 
+          model: DeliveryReview, 
+          as: 'reviews',
+          required: false,
+          where: { volunteer_id: req.user.id }
+        }
+      ],
+      order: [['updated_at', 'DESC']]
+    });
+
+    res.json({ success: true, donations });
+  } catch (error) {
+    console.error('Error fetching completed deliveries:', error);
+    res.status(500).json({ message: 'Internal server error', error: error.message });
+  }
+};
+
+// Submit delivery review
+const submitDeliveryReview = async (req, res) => {
+  const { id } = req.params;
+  const { rating, review_text } = req.body;
+
+  try {
+    const donation = await Donation.findByPk(id);
+
+    if (!donation) {
+      return res.status(404).json({ message: 'Donation not found' });
+    }
+
+    if (donation.volunteer_id !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to review this donation' });
+    }
+
+    if (donation.status !== 'completed') {
+      return res.status(400).json({ message: 'Can only review completed donations' });
+    }
+
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ message: 'Rating must be between 1 and 5' });
+    }
+
+    // Check if review already exists
+    const existingReview = await DeliveryReview.findOne({
+      where: {
+        donation_id: id,
+        volunteer_id: req.user.id
+      }
+    });
+
+    if (existingReview) {
+      return res.status(400).json({ message: 'Review already exists for this donation' });
+    }
+
+    const review = await DeliveryReview.create({
+      donation_id: id,
+      volunteer_id: req.user.id,
+      rating,
+      review_text
+    });
+
+    res.status(201).json({ 
+      success: true, 
+      message: 'Review submitted successfully',
+      review 
+    });
+  } catch (error) {
+    console.error('Error submitting review:', error);
+    res.status(500).json({ message: 'An error occurred while submitting review' });
+  }
+};
+
 module.exports = {
   getVolunteerRequests,
   respondToRequest,
   getAssignedDonations,
   updateDonationStatus,
+  getCompletedDeliveries,
+  submitDeliveryReview,
 };

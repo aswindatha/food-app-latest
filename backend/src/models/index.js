@@ -1,8 +1,13 @@
+const { sequelize } = require('../config/db');
+
+// Import model definitions
 const User = require('./User');
 const Donation = require('./Donation');
 const VolunteerRequest = require('./VolunteerRequest');
 const Conversation = require('./Conversation');
 const Message = require('./Message');
+const DonationProof = require('./donationProof')(sequelize);
+const DeliveryReview = require('./deliveryReview')(sequelize);
 
 // Set up all model associations
 function setupAssociations() {
@@ -34,6 +39,18 @@ function setupAssociations() {
   Message.belongsTo(User, { as: 'sender', foreignKey: 'sender_id' });
   Conversation.hasMany(Message, { as: 'messages', foreignKey: 'conversation_id' });
   User.hasMany(Message, { as: 'sentMessages', foreignKey: 'sender_id' });
+
+  // DonationProof associations
+  DonationProof.belongsTo(Donation, { foreignKey: 'donation_id', as: 'donation' });
+  DonationProof.belongsTo(User, { foreignKey: 'organization_id', as: 'organization' });
+  Donation.hasMany(DonationProof, { as: 'proofs', foreignKey: 'donation_id' });
+  User.hasMany(DonationProof, { as: 'proofs', foreignKey: 'organization_id' });
+
+  // DeliveryReview associations
+  DeliveryReview.belongsTo(Donation, { foreignKey: 'donation_id', as: 'donation' });
+  DeliveryReview.belongsTo(User, { foreignKey: 'volunteer_id', as: 'volunteer' });
+  Donation.hasMany(DeliveryReview, { as: 'reviews', foreignKey: 'donation_id' });
+  User.hasMany(DeliveryReview, { as: 'reviews', foreignKey: 'volunteer_id' });
 }
 
 // Call setup function
@@ -44,5 +61,7 @@ module.exports = {
   Donation,
   VolunteerRequest,
   Conversation,
-  Message
+  Message,
+  DonationProof,
+  DeliveryReview
 };

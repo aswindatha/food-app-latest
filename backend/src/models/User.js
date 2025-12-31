@@ -46,7 +46,7 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING(20),
     allowNull: false,
     validate: {
-      isIn: [['donor', 'volunteer', 'organization']]
+      isIn: [['donor', 'volunteer', 'organization', 'admin']] // Temporarily allow admin role
     }
   },
 }, {
@@ -57,6 +57,7 @@ const User = sequelize.define('User', {
 
 // Hash password before saving
 User.beforeCreate(async (user) => {
+  // Only validate if password_hash exists (for existing users)
   if (user.password_hash) {
     const salt = await bcrypt.genSalt(10);
     user.password_hash = await bcrypt.hash(user.password_hash, salt);
