@@ -249,7 +249,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 12),
                           _buildDemoAccount('donor1@example.com', 'Donor'),
-                          _buildDemoAccount('volunteer1@example.com', 'Volunteer'),
                           _buildDemoAccount('org1@example.com', 'Organization'),
                           const SizedBox(height: 8),
                           Text(

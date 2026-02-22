@@ -90,6 +90,11 @@ class AuthProvider extends ChangeNotifier {
     required String firstName,
     required String lastName,
     required String role,
+    String? address,
+    String? phone,
+    String? documentPath,
+    double? latitude,
+    double? longitude,
   }) async {
     _setLoading(true);
     _clearError();
@@ -102,6 +107,11 @@ class AuthProvider extends ChangeNotifier {
         firstName: firstName,
         lastName: lastName,
         role: role,
+        address: address,
+        phone: phone,
+        documentPath: documentPath,
+        latitude: latitude,
+        longitude: longitude,
       );
 
       if (result['success']) {

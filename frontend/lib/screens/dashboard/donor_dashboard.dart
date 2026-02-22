@@ -185,18 +185,6 @@ class DonorDashboard extends StatelessWidget {
                     ).animate().scale(duration: 600.ms, delay: 400.ms),
                     _buildActionCard(
                       context,
-                      'Find Volunteers',
-                      Icons.people,
-                      AppTheme.accentColor,
-                      () {
-                        // TODO: Navigate to volunteers list
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Volunteers list coming soon!')),
-                        );
-                      },
-                    ).animate().scale(duration: 600.ms, delay: 500.ms),
-                    _buildActionCard(
-                      context,
                       'Impact Stats',
                       Icons.bar_chart,
                       Colors.purple,
@@ -206,7 +194,7 @@ class DonorDashboard extends StatelessWidget {
                           const SnackBar(content: Text('Impact statistics coming soon!')),
                         );
                       },
-                    ).animate().scale(duration: 600.ms, delay: 600.ms),
+                    ).animate().scale(duration: 600.ms, delay: 500.ms),
                   ],
                 ),
                 
@@ -231,14 +219,6 @@ class DonorDashboard extends StatelessWidget {
                           '2 hours ago',
                           Icons.volunteer_activism,
                           AppTheme.primaryColor,
-                        ),
-                        const Divider(),
-                        _buildActivityItem(
-                          'Volunteer Assigned',
-                          'John Smith accepted pickup',
-                          '5 hours ago',
-                          Icons.people,
-                          AppTheme.accentColor,
                         ),
                         const Divider(),
                         _buildActivityItem(

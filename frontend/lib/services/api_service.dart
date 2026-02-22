@@ -35,19 +35,36 @@ class ApiService {
     required String firstName,
     required String lastName,
     required String role,
+    String? address,
+    String? phone,
+    String? documentPath,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
+      // Add # prefix for organization usernames
+      final String processedUsername = role == 'organization' ? '#$username' : username;
+      
+      final Map<String, dynamic> requestData = {
+        'username': processedUsername,
+        'email': email,
+        'password': password,
+        'first_name': firstName,
+        'last_name': lastName,
+        'role': role,
+      };
+      
+      // Add organization-specific fields if provided
+      if (address != null) requestData['address'] = address;
+      if (phone != null) requestData['phone'] = phone;
+      if (documentPath != null) requestData['document_path'] = documentPath;
+      if (latitude != null) requestData['latitude'] = latitude;
+      if (longitude != null) requestData['longitude'] = longitude;
+
       final response = await http.post(
         Uri.parse('$baseUrl/auth/register'),
         headers: _getHeaders(),
-        body: jsonEncode({
-          'username': username,
-          'email': email,
-          'password': password,
-          'first_name': firstName,
-          'last_name': lastName,
-          'role': role,
-        }),
+        body: jsonEncode(requestData),
       );
 
       debugPrint('Register response: ${response.statusCode} - ${response.body}');
@@ -591,6 +608,44 @@ class ApiService {
       }
     } catch (e) {
       debugPrint('Request multiple volunteers error: $e');
+      return {
+        'success': false,
+        'error': 'Network error. Please check your connection.',
+      };
+    }
+  }
+
+  // General update donation status method
+  static Future<Map<String, dynamic>> updateDonationStatus({
+    required String token,
+    required int donationId,
+    required String status,
+  }) async {
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/donations/$donationId/status'),
+        headers: _getHeaders(token: token),
+        body: jsonEncode({'status': status}),
+      );
+
+      debugPrint('Update donation status response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final donationJson = data['donation'];
+        return {
+          'success': true,
+          'donation': donationJson != null ? Donation.fromJson(donationJson) : null,
+        };
+      }
+
+      final errorData = jsonDecode(response.body);
+      return {
+        'success': false,
+        'error': errorData['message'] ?? 'Failed to update donation status',
+      };
+    } catch (e) {
+      debugPrint('Update donation status error: $e');
       return {
         'success': false,
         'error': 'Network error. Please check your connection.',

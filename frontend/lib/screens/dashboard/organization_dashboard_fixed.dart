@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
-import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+
 import '../../providers/auth_provider.dart';
 import '../../models/donation.dart';
 import '../../models/volunteer_request.dart';
@@ -200,22 +202,39 @@ class _OrganizationDashboardState extends State<OrganizationDashboard>
     }
   }
 
-  // Navigate directly to chat with donor
+  // Show chat dialog
   void _showChatDialog(Donation donation) {
-    print('🔍 Chat button clicked for donation: ${donation.title}');
-    print('🔍 Donor data: ${donation.donor}');
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final currentUser = authProvider.user;
     
-    if (donation.donor == null) {
-      print('❌ Donor data is null - cannot open chat');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Donor information not available')),
-      );
-      return;
-    }
-    
-    // Navigate directly to chat screen with pre-filled conversation
-    print('✅ Navigating to chat with ${donation.donor!.firstName}');
-    context.go('/chat');
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Chat with Donor'),
+        content: Text('Do you want to start a conversation with ${donation.donor?.firstName ?? 'the donor'} about "${donation.title}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Navigate to chat screen with pre-filled conversation
+              Navigator.pushNamed(
+                context,
+                '/chat',
+                arguments: {
+                  'donation': donation,
+                  'participant': donation.donor,
+                },
+              );
+            },
+            child: const Text('Chat'),
+          ),
+        ],
+      ),
+    );
   }
 
   // Show donation detail dialog with image
@@ -739,7 +758,7 @@ class _OrganizationDashboardState extends State<OrganizationDashboard>
               ),
               const SizedBox(height: 12),
               // Action buttons for claimed donations
-              if (donation.status == 'in_transit') ...[
+              if (isTransporting) ...[
                 Row(
                   children: [
                     Expanded(
@@ -753,22 +772,6 @@ class _OrganizationDashboardState extends State<OrganizationDashboard>
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => _showChatDialog(donation),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppTheme.primaryColor,
-                          side: const BorderSide(color: AppTheme.primaryColor),
-                        ),
-                        child: const Text('Chat with Donor'),
-                      ),
-                    ),
-                  ],
-                ),
-              ] else if (donation.status == 'completed') ...[
-                // Show completed status with chat option
-                Row(
-                  children: [
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () => _showChatDialog(donation),

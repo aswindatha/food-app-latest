@@ -1,11 +1,13 @@
 import webview
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file, abort
 import pymysql
 from datetime import datetime, timedelta
 import json
 import threading
 import hashlib
 import bcrypt
+import os
+from pathlib import Path
 
 app = Flask(__name__)
 
@@ -18,6 +20,9 @@ DB_CONFIG = {
     'charset': 'utf8mb4',
     'cursorclass': pymysql.cursors.DictCursor
 }
+
+# Document upload directory - relative to project root
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'backend', 'src', 'assets')
 
 def get_db_connection():
     return pymysql.connect(**DB_CONFIG)
@@ -37,14 +42,14 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Food Donation Admin</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>Food Donation Admin - Organization Approval</title>
     <style>
         :root {
             --primary: #6366f1;
             --primary-dark: #4f46e5;
             --secondary: #10b981;
             --danger: #ef4444;
+            --warning: #f59e0b;
             --dark: #1e293b;
             --darker: #0f172a;
             --light: #f8fafc;
@@ -101,6 +106,7 @@ HTML_TEMPLATE = """
             gap: 1rem;
             margin: 1rem 0;
             border-bottom: 1px solid var(--glass-border);
+            flex-wrap: wrap;
         }
 
         .tab {
@@ -126,77 +132,167 @@ HTML_TEMPLATE = """
             background: var(--glass);
         }
 
-        /* Cards */
-        .stats-grid {
+        /* Organization Cards Grid */
+        .org-cards-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
+            grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
         }
 
-        .stat-card {
+        .org-card {
             background: var(--glass);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             border-radius: 1rem;
-            padding: 1.5rem;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            animation: slideIn 0.5s ease forwards;
         }
 
-        .stat-card:hover {
+        .org-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+            border-color: var(--primary);
         }
 
-        .stat-card h3 {
+        .org-card-header {
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+            padding: 1.5rem;
+            position: relative;
+        }
+
+        .org-card-header h3 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .org-card-header .org-username {
             font-size: 0.9rem;
+            opacity: 0.9;
+            font-family: monospace;
+        }
+
+        .org-badge {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 0.25rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            backdrop-filter: blur(5px);
+        }
+
+        .org-card-body {
+            padding: 1.5rem;
+        }
+
+        .org-detail-item {
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 0.5rem;
+            border-left: 3px solid var(--primary);
+        }
+
+        .org-detail-item .label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 0.25rem;
+        }
+
+        .org-detail-item .value {
+            font-size: 1rem;
+            font-weight: 500;
+            word-break: break-word;
+        }
+
+        .document-preview {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 0.5rem;
+        }
+
+        .document-preview .label {
+            font-size: 0.8rem;
             color: #94a3b8;
             margin-bottom: 0.5rem;
         }
 
-        .stat-card .value {
-            font-size: 2rem;
-            font-weight: 700;
-            background: linear-gradient(90deg, var(--primary), var(--secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        /* Charts */
-        .charts-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .chart-container {
-            background: var(--glass);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
-            border-radius: 1rem;
-            padding: 1.5rem;
-            transition: all 0.3s ease;
-        }
-
-        .chart-container:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-        }
-
-        .chart-container h3 {
+        .document-content {
+            max-height: 150px;
+            overflow-y: auto;
+            padding: 0.75rem;
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 0.5rem;
+            font-family: monospace;
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+            word-break: break-word;
             margin-bottom: 1rem;
-            color: #e2e8f0;
-            font-size: 1.1rem;
-            font-weight: 600;
         }
 
-        .chart-wrapper {
-            position: relative;
-            height: 300px;
-            width: 100%;
+        .document-actions {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .document-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            border-radius: 0.5rem;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+        }
+
+        .document-link:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        .document-link.view-pdf {
+            background: var(--secondary);
+        }
+
+        .document-link.view-pdf:hover {
+            background: #0d9488;
+        }
+
+        .coordinates {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.5rem;
+        }
+
+        .coordinate {
+            flex: 1;
+            padding: 0.5rem;
+            background: rgba(99, 102, 241, 0.1);
+            border-radius: 0.5rem;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        .org-card-footer {
+            padding: 1.5rem;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            border-top: 1px solid var(--glass-border);
         }
 
         /* Tables */
@@ -240,63 +336,14 @@ HTML_TEMPLATE = """
             display: inline-block;
         }
 
-        /* Flex utilities */
-        .flex {
-            display: flex;
-        }
-        
-        .justify-between {
-            justify-content: space-between;
-        }
-        
-        .items-center {
-            align-items: center;
-        }
-        
-        .gap-2 {
-            gap: 0.5rem;
-        }
-        
-        .gap-4 {
-            gap: 1rem;
+        .badge-pending {
+            background: var(--warning);
+            color: var(--dark);
         }
 
-        /* Grid utilities */
-        .grid {
-            display: grid;
-        }
-        
-        .grid-cols-1 {
-            grid-template-columns: repeat(1, minmax(0, 1fr));
-        }
-        
-        .grid-cols-2 {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-        
-        .grid-cols-3 {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-
-        /* Text utilities */
-        .text-sm {
-            font-size: 0.875rem;
-        }
-        
-        .text-gray-400 {
-            color: #9ca3af;
-        }
-        
-        .text-2xl {
-            font-size: 1.5rem;
-        }
-        
-        .font-bold {
-            font-weight: 700;
-        }
-        
-        .mb-6 {
-            margin-bottom: 1.5rem;
+        .badge-approved {
+            background: var(--secondary);
+            color: white;
         }
 
         /* Buttons */
@@ -310,11 +357,12 @@ HTML_TEMPLATE = """
             display: inline-flex;
             align-items: center;
             gap: 0.5rem;
+            font-size: 0.9rem;
         }
 
         .btn-sm {
             padding: 0.25rem 0.75rem;
-            font-size: 0.875rem;
+            font-size: 0.8rem;
         }
 
         .btn-primary {
@@ -324,6 +372,16 @@ HTML_TEMPLATE = """
 
         .btn-primary:hover {
             background: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        .btn-success {
+            background: var(--secondary);
+            color: white;
+        }
+
+        .btn-success:hover {
+            opacity: 0.9;
             transform: translateY(-2px);
         }
 
@@ -337,12 +395,12 @@ HTML_TEMPLATE = """
             transform: translateY(-2px);
         }
 
-        .btn-edit {
-            background: #f59e0b;
+        .btn-warning {
+            background: var(--warning);
             color: white;
         }
 
-        .btn-edit:hover {
+        .btn-warning:hover {
             opacity: 0.9;
             transform: translateY(-2px);
         }
@@ -373,7 +431,7 @@ HTML_TEMPLATE = """
             background: #1e293b;
             border-radius: 1rem;
             width: 90%;
-            max-width: 600px;
+            max-width: 800px;
             max-height: 90vh;
             overflow-y: auto;
             padding: 2rem;
@@ -416,41 +474,104 @@ HTML_TEMPLATE = """
             color: #e2e8f0;
         }
 
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            color: #94a3b8;
-            font-weight: 500;
-        }
-
-        .form-control {
+        /* Document Viewer Modal */
+        .document-viewer {
             width: 100%;
-            padding: 0.75rem 1rem;
-            background: rgba(15, 23, 42, 0.5);
-            border: 1px solid var(--glass-border);
+            height: 70vh;
+            border: none;
             border-radius: 0.5rem;
-            color: #e2e8f0;
-            font-size: 1rem;
-            transition: all 0.3s ease;
+            background: white;
         }
 
-        .form-control:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+        .pdf-viewer {
+            width: 100%;
+            height: 70vh;
+            border: none;
+            border-radius: 0.5rem;
         }
 
-        .form-actions {
+        .modal-actions {
             display: flex;
             justify-content: flex-end;
             gap: 1rem;
-            margin-top: 2rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid var(--glass-border);
+            margin-top: 1rem;
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            background: var(--glass);
+            border-radius: 1rem;
+            color: #94a3b8;
+        }
+
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        /* Flex utilities */
+        .flex {
+            display: flex;
+        }
+        
+        .justify-between {
+            justify-content: space-between;
+        }
+        
+        .items-center {
+            align-items: center;
+        }
+        
+        .gap-2 {
+            gap: 0.5rem;
+        }
+        
+        .gap-4 {
+            gap: 1rem;
+        }
+
+        .mb-4 {
+            margin-bottom: 1rem;
+        }
+
+        .mb-6 {
+            margin-bottom: 1.5rem;
+        }
+
+        .mt-4 {
+            margin-top: 1rem;
+        }
+
+        /* Text utilities */
+        .text-sm {
+            font-size: 0.875rem;
+        }
+        
+        .text-lg {
+            font-size: 1.125rem;
+        }
+        
+        .text-xl {
+            font-size: 1.25rem;
+        }
+        
+        .text-2xl {
+            font-size: 1.5rem;
+        }
+        
+        .font-bold {
+            font-weight: 700;
+        }
+        
+        .text-gray-400 {
+            color: #9ca3af;
+        }
+        
+        .text-center {
+            text-align: center;
         }
 
         /* Animations */
@@ -459,20 +580,19 @@ HTML_TEMPLATE = """
             to { opacity: 1; transform: translateY(0); }
         }
 
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
         .fade-in {
             animation: fadeIn 0.5s ease forwards;
         }
 
         /* Responsive */
-        @media (max-width: 1024px) {
-            .charts-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
         @media (max-width: 768px) {
-            .stats-grid {
-                grid-template-columns: 1fr 1fr;
+            .org-cards-grid {
+                grid-template-columns: 1fr;
             }
             
             .table-container {
@@ -481,21 +601,6 @@ HTML_TEMPLATE = """
             
             table {
                 min-width: 800px;
-            }
-            
-            .grid-cols-2, .grid-cols-3 {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        @media (max-width: 576px) {
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .modal-content {
-                width: 95%;
-                padding: 1.5rem 1rem;
             }
             
             .tabs {
@@ -511,70 +616,42 @@ HTML_TEMPLATE = """
                 border: 1px solid var(--glass-border);
                 transform: none;
             }
+
+            .coordinates {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .document-actions {
+                flex-direction: column;
+            }
         }
     </style>
 </head>
 <body>
     <div class="navbar">
-        <div class="logo">Food Donation Admin</div>
+        <div class="logo">Food Donation Admin - Organization Approval</div>
         <div id="current-time" class="text-sm text-gray-400"></div>
     </div>
 
     <div class="container">
         <div class="tabs">
-            <div class="tab active" onclick="showTab('analytics')">Analytics</div>
+            <div class="tab active" onclick="showTab('approvals')">Organization Approvals</div>
             <div class="tab" onclick="showTab('users')">Users</div>
             <div class="tab" onclick="showTab('donations')">Donations</div>
         </div>
 
-        <!-- Analytics Tab -->
-        <div id="analytics" class="tab-content">
-            <h2 class="text-2xl font-bold mb-6">Dashboard Overview</h2>
-            
-            <div class="stats-grid">
-                <div class="stat-card fade-in" style="animation-delay: 0.1s">
-                    <h3>Total Users</h3>
-                    <div class="value counter" id="total-users">0</div>
-                </div>
-                <div class="stat-card fade-in" style="animation-delay: 0.2s">
-                    <h3>Total Donations</h3>
-                    <div class="value counter" id="total-donations">0</div>
-                </div>
-                <div class="stat-card fade-in" style="animation-delay: 0.3s">
-                    <h3>Active Volunteers</h3>
-                    <div class="value counter" id="active-volunteers">0</div>
-                </div>
-                <div class="stat-card fade-in" style="animation-delay: 0.4s">
-                    <h3>Completion Rate</h3>
-                    <div class="value"><span id="completion-rate">0</span>%</div>
+        <!-- Organization Approvals Tab -->
+        <div id="approvals" class="tab-content">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">Pending Organization Approvals</h2>
+                <div class="flex gap-2">
+                    <span class="badge badge-pending" id="pending-count">0 Pending</span>
                 </div>
             </div>
-
-            <div class="charts-grid">
-                <div class="chart-container fade-in" style="animation-delay: 0.2s">
-                    <h3>Daily Donations (Last 30 Days)</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="donationsChart"></canvas>
-                    </div>
-                </div>
-                <div class="chart-container fade-in" style="animation-delay: 0.3s">
-                    <h3>Donation Status Distribution</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="statusChart"></canvas>
-                    </div>
-                </div>
-                <div class="chart-container fade-in" style="animation-delay: 0.4s">
-                    <h3>Top Organizations by Donations Claimed</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="orgsChart"></canvas>
-                    </div>
-                </div>
-                <div class="chart-container fade-in" style="animation-delay: 0.5s">
-                    <h3>Top Volunteers by Completed Deliveries</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="volunteersChart"></canvas>
-                    </div>
-                </div>
+            
+            <div id="pending-orgs-container">
+                <!-- Organizations will be loaded here -->
             </div>
         </div>
 
@@ -592,6 +669,7 @@ HTML_TEMPLATE = """
                     <thead>
                         <tr>
                             <th>ID</th>
+                            <th>Username</th>
                             <th>Name</th>
                             <th>Email</th>
                             <th>Phone</th>
@@ -642,6 +720,25 @@ HTML_TEMPLATE = """
                         <!-- Filled by JavaScript -->
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Document Viewer Modal -->
+    <div id="document-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="document-modal-title">Document Viewer</h3>
+                <button class="close-btn" onclick="closeModal('document-modal')">&times;</button>
+            </div>
+            <div id="document-viewer-container">
+                <!-- Document will be loaded here -->
+            </div>
+            <div class="modal-actions">
+                <a id="download-document-link" href="#" target="_blank" class="btn btn-primary">
+                    <span>⬇️</span> Download
+                </a>
+                <button class="btn" onclick="closeModal('document-modal')">Close</button>
             </div>
         </div>
     </div>
@@ -791,11 +888,160 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <style>
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal.show {
+            display: flex;
+            opacity: 1;
+        }
+
+        .modal-content {
+            background: #1e293b;
+            border-radius: 1rem;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 2rem;
+            position: relative;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            transform: translateY(20px);
+            transition: transform 0.3s ease;
+        }
+
+        .modal.show .modal-content {
+            transform: translateY(0);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .modal-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #94a3b8;
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .close-btn:hover {
+            color: #e2e8f0;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--glass-border);
+            border-radius: 0.5rem;
+            color: #e2e8f0;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+        }
+
+        .form-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--glass-border);
+        }
+
+        .grid {
+            display: grid;
+        }
+        
+        .grid-cols-1 {
+            grid-template-columns: repeat(1, minmax(0, 1fr));
+        }
+        
+        .grid-cols-2 {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        
+        .grid-cols-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        
+        @media (min-width: 768px) {
+            .md\\:grid-cols-2 {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            
+            .md\\:grid-cols-3 {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        /* PDF Viewer */
+        .pdf-viewer {
+            width: 100%;
+            height: 60vh;
+            border: none;
+            border-radius: 0.5rem;
+        }
+
+        .document-info {
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+
     <script>
         // Global variables
-        let charts = {};
         let users = [];
         let donations = [];
+        let pendingOrgs = [];
         let donors = [];
         let volunteers = [];
         let organizations = [];
@@ -806,7 +1052,7 @@ HTML_TEMPLATE = """
             setInterval(updateClock, 60000);
             
             // Load initial data
-            loadAnalytics();
+            loadPendingOrganizations();
             loadUsers();
             loadDonations();
             loadUserSelects();
@@ -847,8 +1093,8 @@ HTML_TEMPLATE = """
             event.currentTarget.classList.add('active');
             
             // Refresh data if needed
-            if (tabName === 'analytics') {
-                loadAnalytics();
+            if (tabName === 'approvals') {
+                loadPendingOrganizations();
             } else if (tabName === 'users') {
                 loadUsers();
             } else if (tabName === 'donations') {
@@ -871,6 +1117,256 @@ HTML_TEMPLATE = """
             setTimeout(() => {
                 modal.style.display = 'none';
             }, 300);
+        }
+
+        // Document viewing function
+        function viewDocument(documentPath) {
+            if (!documentPath) {
+                alert('No document available');
+                return;
+            }
+
+            const modal = document.getElementById('document-modal');
+            const container = document.getElementById('document-viewer-container');
+            const title = document.getElementById('document-modal-title');
+            const downloadLink = document.getElementById('download-document-link');
+            
+            title.textContent = 'Document Viewer - ' + documentPath.split('/').pop();
+            
+            // Check file type
+            const fileExt = documentPath.split('.').pop().toLowerCase();
+            const isPDF = fileExt === 'pdf';
+            
+            // Create document viewer
+            let viewerHtml = '';
+            
+            if (isPDF) {
+                // For PDF files, use native browser PDF viewer
+                viewerHtml = `
+                    <div class="document-info">
+                        <strong>File:</strong> ${documentPath.split('/').pop()}
+                    </div>
+                    <iframe 
+                        src="/api/documents/${documentPath}" 
+                        class="pdf-viewer"
+                        frameborder="0">
+                    </iframe>
+                `;
+            } else {
+                // For other files, show info and download option
+                viewerHtml = `
+                    <div class="document-info">
+                        <strong>File:</strong> ${documentPath.split('/').pop()}<br>
+                        <strong>Type:</strong> ${fileExt.toUpperCase()} file
+                    </div>
+                    <div class="text-center" style="padding: 3rem; background: rgba(0,0,0,0.2); border-radius: 0.5rem;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">📄</div>
+                        <p>This file type cannot be previewed directly.</p>
+                        <p>Please use the download button below to view the document.</p>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = viewerHtml;
+            
+            // Set download link
+            downloadLink.href = `/api/documents/${documentPath}`;
+            
+            openModal('document-modal');
+        }
+
+        // Load pending organizations (username starts with #)
+        function loadPendingOrganizations() {
+            fetch('/api/organizations/pending')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        pendingOrgs = data.data;
+                        renderPendingOrganizations(pendingOrgs);
+                        document.getElementById('pending-count').textContent = `${pendingOrgs.length} Pending`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading pending organizations:', error);
+                    showEmptyState('Error loading organizations');
+                });
+        }
+
+        // Render pending organizations as cards
+        function renderPendingOrganizations(orgs) {
+            const container = document.getElementById('pending-orgs-container');
+            
+            if (!container) return;
+            
+            if (orgs.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state fade-in">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">📋</div>
+                        <h3 class="text-lg font-bold mb-2">No Pending Approvals</h3>
+                        <p class="text-gray-400">All organization registrations have been processed.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '<div class="org-cards-grid">';
+            
+            orgs.forEach(org => {
+                const createdDate = new Date(org.created_at).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                
+                const documentName = org.document_path ? org.document_path.split('/').pop() : 'No document';
+                const fileExt = org.document_path ? org.document_path.split('.').pop().toLowerCase() : '';
+                const isPDF = fileExt === 'pdf';
+                
+                html += `
+                    <div class="org-card fade-in" data-org-id="${org.id}">
+                        <div class="org-card-header">
+                            <h3>${org.first_name} ${org.last_name}</h3>
+                            <div class="org-username">${org.username}</div>
+                            <div class="org-badge">Pending Approval</div>
+                        </div>
+                        <div class="org-card-body">
+                            <div class="org-detail-item">
+                                <div class="label">Email</div>
+                                <div class="value">${org.email || 'Not provided'}</div>
+                            </div>
+                            <div class="org-detail-item">
+                                <div class="label">Phone</div>
+                                <div class="value">${org.phone || 'Not provided'}</div>
+                            </div>
+                            <div class="org-detail-item">
+                                <div class="label">Address</div>
+                                <div class="value">${org.address || 'Not provided'}</div>
+                            </div>
+                            ${org.latitude && org.longitude ? `
+                            <div class="org-detail-item">
+                                <div class="label">Location Coordinates</div>
+                                <div class="coordinates">
+                                    <div class="coordinate">Lat: ${org.latitude}</div>
+                                    <div class="coordinate">Long: ${org.longitude}</div>
+                                </div>
+                            </div>
+                            ` : ''}
+                            <div class="org-detail-item">
+                                <div class="label">Registration Date</div>
+                                <div class="value">${createdDate}</div>
+                            </div>
+                            ${org.document_path ? `
+                            <div class="document-preview">
+                                <div class="label">Submitted Document</div>
+                                <div class="document-content">
+                                    ${documentName}
+                                </div>
+                                <div class="document-actions">
+                                    <button onclick="viewDocument('${encodeURIComponent(org.document_path)}')" class="document-link ${isPDF ? 'view-pdf' : ''}">
+                                        <span>${isPDF ? '📄' : '📁'}</span> ${isPDF ? 'View PDF' : 'View Document'}
+                                    </button>
+                                    <a href="/api/documents/${encodeURIComponent(org.document_path)}" target="_blank" class="document-link" download>
+                                        <span>⬇️</span> Download
+                                    </a>
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        <div class="org-card-footer">
+                            <button class="btn btn-success" onclick="approveOrganization(${org.id}, '${org.username}')">
+                                <span>✓</span> Approve
+                            </button>
+                            <button class="btn btn-danger" onclick="rejectOrganization(${org.id})">
+                                <span>✗</span> Reject
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // Approve organization (remove # from username)
+        function approveOrganization(orgId, username) {
+            if (!confirm('Are you sure you want to approve this organization? They will be able to access the system.')) {
+                return;
+            }
+            
+            fetch(`/api/organizations/${orgId}/approve`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Remove the approved org from the list with animation
+                    const orgCard = document.querySelector(`.org-card[data-org-id="${orgId}"]`);
+                    if (orgCard) {
+                        orgCard.style.opacity = '0';
+                        orgCard.style.transform = 'scale(0.8)';
+                        setTimeout(() => {
+                            loadPendingOrganizations(); // Reload the list
+                            loadUsers(); // Refresh users list to show the new approved org
+                            loadUserSelects(); // Refresh selects
+                        }, 300);
+                    }
+                } else {
+                    alert(data.message || 'Error approving organization');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error approving organization');
+            });
+        }
+
+        // Reject organization (delete from database)
+        function rejectOrganization(orgId) {
+            if (!confirm('Are you sure you want to reject this organization? This will permanently delete their registration.')) {
+                return;
+            }
+            
+            fetch(`/api/organizations/${orgId}/reject`, {
+                method: 'DELETE'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Remove the rejected org from the list with animation
+                    const orgCard = document.querySelector(`.org-card[data-org-id="${orgId}"]`);
+                    if (orgCard) {
+                        orgCard.style.opacity = '0';
+                        orgCard.style.transform = 'scale(0.8)';
+                        setTimeout(() => {
+                            loadPendingOrganizations(); // Reload the list
+                        }, 300);
+                    }
+                } else {
+                    alert(data.message || 'Error rejecting organization');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error rejecting organization');
+            });
+        }
+
+        function showEmptyState(message) {
+            const container = document.getElementById('pending-orgs-container');
+            if (container) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div style="font-size: 3rem;">📋</div>
+                        <p>${message}</p>
+                    </div>
+                `;
+            }
         }
 
         // User Management
@@ -941,7 +1437,6 @@ HTML_TEMPLATE = """
                 if (data.success) {
                     closeModal('user-modal');
                     loadUsers();
-                    if (!userId) loadAnalytics(); // Refresh stats if new user
                 } else {
                     alert(data.message || 'Error saving user');
                 }
@@ -965,7 +1460,8 @@ HTML_TEMPLATE = """
                     if (data.success) {
                         closeModal('user-modal');
                         loadUsers();
-                        loadAnalytics(); // Refresh stats
+                        loadPendingOrganizations(); // Refresh pending list in case it was a pending org
+                        loadUserSelects(); // Refresh selects
                     } else {
                         alert(data.message || 'Error deleting user');
                     }
@@ -1020,7 +1516,7 @@ HTML_TEMPLATE = """
         function formatDateTimeForInput(dateTimeStr) {
             if (!dateTimeStr) return '';
             const date = new Date(dateTimeStr);
-            return date.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+            return date.toISOString().slice(0, 16);
         }
 
         function saveDonation(event) {
@@ -1057,7 +1553,6 @@ HTML_TEMPLATE = """
                 if (data.success) {
                     closeModal('donation-modal');
                     loadDonations();
-                    if (!donationId) loadAnalytics(); // Refresh stats if new donation
                 } else {
                     alert(data.message || 'Error saving donation');
                 }
@@ -1081,7 +1576,6 @@ HTML_TEMPLATE = """
                     if (data.success) {
                         closeModal('donation-modal');
                         loadDonations();
-                        loadAnalytics(); // Refresh stats
                     } else {
                         alert(data.message || 'Error deleting donation');
                     }
@@ -1094,27 +1588,13 @@ HTML_TEMPLATE = """
         }
 
         // Data loading functions
-        function loadAnalytics() {
-            // Load stats
-            fetch('/api/analytics')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        updateStats(data.data);
-                        renderCharts(data.data);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading analytics:', error);
-                });
-        }
-
         function loadUsers() {
             fetch('/api/users')
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        users = data.data;
+                        // Filter out users with # in username (pending) from the main users list
+                        users = data.data.filter(user => !user.username.startsWith('#'));
                         renderUsersTable(users);
                     }
                 })
@@ -1152,7 +1632,7 @@ HTML_TEMPLATE = """
             ])
             .then(([donorsData, volunteersData, orgsData]) => {
                 if (donorsData.success) {
-                    donors = donorsData.data;
+                    donors = donorsData.data.filter(user => !user.username.startsWith('#'));
                     updateSelect('donor', donors);
                 }
                 if (volunteersData.success) {
@@ -1160,229 +1640,26 @@ HTML_TEMPLATE = """
                     updateSelect('volunteer', volunteers);
                 }
                 if (orgsData.success) {
-                    organizations = orgsData.data;
+                    organizations = orgsData.data.filter(user => !user.username.startsWith('#'));
                     updateSelect('organization', organizations);
                 }
             })
             .catch(error => {
                 console.error('Error loading user selects:', error);
             });
-
-            function updateSelect(selectId, items) {
-                const select = document.getElementById(selectId);
-                select.innerHTML = '<option value="">None</option>';
-                items.forEach(item => {
-                    const option = document.createElement('option');
-                    option.value = item.id;
-                    option.textContent = `${item.first_name} ${item.last_name}`;
-                    select.appendChild(option);
-                });
-            }
         }
 
-        function updateStats(data) {
-            // Update stat cards with animation
-            const totalUsers = Object.values(data.user_counts || {}).reduce((a, b) => a + b, 0);
-            animateCounter('total-users', totalUsers);
-            animateCounter('total-donations', data.total_donations || 0);
-            animateCounter('active-volunteers', data.active_volunteers || 0);
-            animateCounter('completion-rate', data.completion_rate || 0);
-        }
-
-        function animateCounter(elementId, targetValue) {
-            const element = document.getElementById(elementId);
-            if (!element) return;
+        function updateSelect(selectId, items) {
+            const select = document.getElementById(selectId);
+            if (!select) return;
             
-            const startValue = parseInt(element.textContent) || 0;
-            const duration = 1000;
-            const startTime = performance.now();
-            
-            function updateCounter(currentTime) {
-                const elapsed = currentTime - startTime;
-                const progress = Math.min(elapsed / duration, 1);
-                const currentValue = Math.floor(startValue + (targetValue - startValue) * progress);
-                element.textContent = currentValue;
-                
-                if (progress < 1) {
-                    requestAnimationFrame(updateCounter);
-                }
-            }
-            
-            requestAnimationFrame(updateCounter);
-        }
-
-        function renderCharts(data) {
-            // Destroy existing charts
-            Object.values(charts).forEach(chart => chart.destroy());
-            charts = {};
-            
-            // Daily donations line chart
-            const donationsCtx = document.getElementById('donationsChart');
-            if (donationsCtx) {
-                charts.donations = new Chart(donationsCtx.getContext('2d'), {
-                    type: 'line',
-                    data: {
-                        labels: (data.daily_donations || []).map(d => new Date(d.date).toLocaleDateString()),
-                        datasets: [{
-                            label: 'Donations',
-                            data: (data.daily_donations || []).map(d => d.count),
-                            borderColor: '#6366f1',
-                            backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                            tension: 0.4,
-                            fill: true
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                display: false
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                grid: {
-                                    color: 'rgba(255, 255, 255, 0.1)'
-                                },
-                                ticks: {
-                                    color: '#94a3b8'
-                                }
-                            },
-                            x: {
-                                grid: {
-                                    color: 'rgba(255, 255, 255, 0.1)'
-                                },
-                                ticks: {
-                                    color: '#94a3b8'
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-            
-            // Status distribution donut chart
-            const statusCtx = document.getElementById('statusChart');
-            if (statusCtx) {
-                charts.status = new Chart(statusCtx.getContext('2d'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: (data.status_distribution || []).map(d => d.status),
-                        datasets: [{
-                            data: (data.status_distribution || []).map(d => d.count),
-                            backgroundColor: [
-                                '#6366f1',
-                                '#10b981',
-                                '#f59e0b',
-                                '#ef4444',
-                                '#8b5cf6'
-                            ]
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: {
-                                    color: '#94a3b8'
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-            
-            // Top organizations bar chart
-            const orgsCtx = document.getElementById('orgsChart');
-            if (orgsCtx) {
-                charts.orgs = new Chart(orgsCtx.getContext('2d'), {
-                    type: 'bar',
-                    data: {
-                        labels: (data.top_organizations || []).map(o => o.name),
-                        datasets: [{
-                            label: 'Donations Claimed',
-                            data: (data.top_organizations || []).map(o => o.donation_count),
-                            backgroundColor: '#10b981'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                display: false
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                grid: {
-                                    color: 'rgba(255, 255, 255, 0.1)'
-                                },
-                                ticks: {
-                                    color: '#94a3b8'
-                                }
-                            },
-                            x: {
-                                grid: {
-                                    color: 'rgba(255, 255, 255, 0.1)'
-                                },
-                                ticks: {
-                                    color: '#94a3b8'
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-            
-            // Top volunteers bar chart
-            const volunteersCtx = document.getElementById('volunteersChart');
-            if (volunteersCtx) {
-                charts.volunteers = new Chart(volunteersCtx.getContext('2d'), {
-                    type: 'bar',
-                    data: {
-                        labels: (data.top_volunteers || []).map(v => v.name),
-                        datasets: [{
-                            label: 'Completed Deliveries',
-                            data: (data.top_volunteers || []).map(v => v.completed_deliveries),
-                            backgroundColor: '#f59e0b'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                display: false
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                grid: {
-                                    color: 'rgba(255, 255, 255, 0.1)'
-                                },
-                                ticks: {
-                                    color: '#94a3b8'
-                                }
-                            },
-                            x: {
-                                grid: {
-                                    color: 'rgba(255, 255, 255, 0.1)'
-                                },
-                                ticks: {
-                                    color: '#94a3b8'
-                                }
-                            }
-                        }
-                    }
-                });
-            }
+            select.innerHTML = '<option value="">None</option>';
+            items.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item.id;
+                option.textContent = `${item.first_name} ${item.last_name}`;
+                select.appendChild(option);
+            });
         }
 
         function renderUsersTable(users) {
@@ -1395,13 +1672,14 @@ HTML_TEMPLATE = """
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${user.id}</td>
+                    <td>${user.username}</td>
                     <td>${user.first_name} ${user.last_name}</td>
                     <td>${user.email}</td>
                     <td>${user.phone || '-'}</td>
                     <td><span class="badge" style="background: #6366f1">${user.role}</span></td>
                     <td>${new Date(user.created_at).toLocaleDateString()}</td>
                     <td>
-                        <button class="btn btn-edit btn-sm" onclick="openUserModal(${JSON.stringify(user).replace(/"/g, '&quot;')})">Edit</button>
+                        <button class="btn btn-edit btn-sm" onclick='openUserModal(${JSON.stringify(user).replace(/'/g, "\\'")})'>Edit</button>
                     </td>
                 `;
                 tbody.appendChild(row);
@@ -1427,7 +1705,7 @@ HTML_TEMPLATE = """
                     <td>${donation.org_name || '-'}</td>
                     <td>${new Date(donation.expiry_date).toLocaleDateString()}</td>
                     <td>
-                        <button class="btn btn-edit btn-sm" onclick="openDonationModal(${JSON.stringify(donation).replace(/"/g, '&quot;')})">Edit</button>
+                        <button class="btn btn-edit btn-sm" onclick='openDonationModal(${JSON.stringify(donation).replace(/'/g, "\\'")})'>Edit</button>
                     </td>
                 `;
                 tbody.appendChild(row);
@@ -1470,78 +1748,194 @@ HTML_TEMPLATE = """
 """
 
 # Flask API Routes
-@app.route('/api/analytics')
-def get_analytics():
+
+@app.route('/api/organizations/pending')
+def get_pending_organizations():
+    """Get all organizations with username starting with # (pending approval)"""
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
-            # Get user counts by role
-            cursor.execute("SELECT role, COUNT(*) as count FROM users WHERE role IN ('donor', 'volunteer', 'organization') GROUP BY role")
-            role_counts = {row['role']: row['count'] for row in cursor.fetchall()}
-            
-            # Get donation stats
-            cursor.execute("SELECT COUNT(*) as total FROM donations")
-            total_donations = cursor.fetchone()['total']
-            
-            cursor.execute("SELECT COUNT(DISTINCT volunteer_id) as active_volunteers FROM volunteers WHERE status = 'accepted'")
-            result = cursor.fetchone()
-            active_volunteers = result['active_volunteers'] if result else 0
-            
-            cursor.execute("SELECT COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed, COUNT(*) as total FROM donations")
-            completion_stats = cursor.fetchone()
-            completion_rate = round((completion_stats['completed'] / completion_stats['total']) * 100) if completion_stats['total'] > 0 else 0
-            
-            # Get daily donations for last 30 days
-            cursor.execute("SELECT DATE(created_at) as date, COUNT(*) as count FROM donations WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY DATE(created_at) ORDER BY date")
-            daily_donations = cursor.fetchall()
-            
-            # Get donation status distribution
-            cursor.execute("SELECT status, COUNT(*) as count FROM donations GROUP BY status")
-            status_distribution = cursor.fetchall()
-            
-            # Get top organizations
             cursor.execute("""
-                SELECT u.id, CONCAT(u.first_name, ' ', u.last_name) as name, 
-                       COUNT(d.id) as donation_count 
-                FROM users u 
-                LEFT JOIN donations d ON u.id = d.organization_id 
-                WHERE u.role = 'organization' 
-                GROUP BY u.id 
-                ORDER BY donation_count DESC 
-                LIMIT 5
+                SELECT * FROM users 
+                WHERE role = 'organization' 
+                AND username LIKE '#%'
+                ORDER BY created_at DESC
             """)
-            top_organizations = cursor.fetchall()
-            
-            # Get top volunteers
-            cursor.execute("""
-                SELECT u.id, CONCAT(u.first_name, ' ', u.last_name) as name, 
-                       COUNT(v.id) as completed_deliveries 
-                FROM users u 
-                LEFT JOIN volunteers v ON u.id = v.volunteer_id 
-                WHERE u.role = 'volunteer' AND v.status = 'completed' 
-                GROUP BY u.id 
-                ORDER BY completed_deliveries DESC 
-                LIMIT 5
-            """)
-            top_volunteers = cursor.fetchall()
-            
-            return jsonify({
-                'success': True,
-                'data': {
-                    'user_counts': role_counts,
-                    'total_donations': total_donations,
-                    'active_volunteers': active_volunteers,
-                    'completion_rate': completion_rate,
-                    'daily_donations': daily_donations,
-                    'status_distribution': status_distribution,
-                    'top_organizations': top_organizations,
-                    'top_volunteers': top_volunteers
-                }
-            })
+            pending_orgs = cursor.fetchall()
+            return jsonify({'success': True, 'data': pending_orgs})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
         conn.close()
+
+@app.route('/api/organizations/<int:org_id>/approve', methods=['POST'])
+def approve_organization(org_id):
+    """Approve organization by removing # from username"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # Get current username
+            cursor.execute("SELECT username FROM users WHERE id = %s", (org_id,))
+            result = cursor.fetchone()
+            
+            if not result:
+                return jsonify({'success': False, 'message': 'Organization not found'}), 404
+            
+            username = result['username']
+            if not username.startswith('#'):
+                return jsonify({'success': False, 'message': 'Organization is already approved'}), 400
+            
+            # Remove # from username
+            new_username = username[1:]  # Remove the first character (#)
+            
+            cursor.execute("""
+                UPDATE users 
+                SET username = %s, updated_at = NOW()
+                WHERE id = %s
+            """, (new_username, org_id))
+            
+            conn.commit()
+            return jsonify({'success': True, 'message': 'Organization approved successfully'})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/organizations/<int:org_id>/reject', methods=['DELETE'])
+def reject_organization(org_id):
+    """Reject organization by deleting the record"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # Check if it's a pending organization
+            cursor.execute("SELECT username FROM users WHERE id = %s AND role = 'organization'", (org_id,))
+            result = cursor.fetchone()
+            
+            if not result:
+                return jsonify({'success': False, 'message': 'Organization not found'}), 404
+            
+            username = result['username']
+            if not username.startswith('#'):
+                return jsonify({'success': False, 'message': 'Cannot reject approved organization'}), 400
+            
+            # Delete the organization
+            cursor.execute("DELETE FROM users WHERE id = %s", (org_id,))
+            conn.commit()
+            return jsonify({'success': True, 'message': 'Organization rejected and deleted'})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/documents/<path:document_path>')
+def serve_document(document_path):
+    """Serve uploaded documents"""
+    try:
+        # URL decode the path to handle special characters
+        from urllib.parse import unquote
+        document_path = unquote(document_path)
+        
+        # Extract just the filename from the path
+        filename = os.path.basename(document_path)
+        
+        # Get project root directory
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        # Construct full file path - try different possible locations
+        possible_paths = [
+            os.path.join(UPLOAD_FOLDER, filename),  # Direct in assets folder
+            os.path.join(UPLOAD_FOLDER, document_path),  # Full path as provided
+            os.path.join(project_root, document_path),  # Project root with stored path
+            os.path.join(project_root, 'backend', 'src', 'assets', filename),  # Backend assets
+            os.path.join(project_root, 'backend', 'src', 'assets', document_path),  # Backend with stored path
+            os.path.join(project_root, 'backend', 'src', document_path),  # Backend with stored path
+            os.path.join(project_root, filename),  # Project root with just filename
+            document_path,  # Absolute path as stored
+            os.path.join(os.path.dirname(__file__), filename),  # Admin app directory
+            os.path.join(os.path.dirname(__file__), document_path),  # Admin app full path
+        ]
+        
+        print(f"Looking for document: {filename}")
+        print(f"Document path: {document_path}")
+        print(f"UPLOAD_FOLDER: {UPLOAD_FOLDER}")
+        print(f"Project root: {project_root}")
+        
+        file_path = None
+        for path in possible_paths:
+            print(f"Trying path: {path}")
+            if os.path.exists(path):
+                file_path = path
+                print(f"Found file at: {file_path}")
+                break
+        
+        if not file_path:
+            # If file not found, return a helpful error page
+            print(f"File not found. Searched in:")
+            for path in possible_paths:
+                print(f"  - {path}")
+            return f"""
+            <html>
+            <head><title>Document Not Found</title></head>
+            <body style="background: #1e293b; color: white; font-family: Arial; padding: 2rem;">
+                <h1>Document Not Found</h1>
+                <p>The requested document could not be found: {filename}</p>
+                <p>Searched in:</p>
+                <ul>
+                    {"".join([f"<li>{path}</li>" for path in possible_paths])}
+                </ul>
+                <p>Please check if the file exists in the uploads directory.</p>
+                <a href="/" style="color: #6366f1;">Return to Admin Panel</a>
+            </body>
+            </html>
+            """, 404
+        
+        # Determine file type and serve appropriately
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        if file_ext == '.pdf':
+            # For PDFs, serve with appropriate headers
+            return send_file(
+                file_path,
+                mimetype='application/pdf',
+                as_attachment=False,
+                download_name=filename
+            )
+        elif file_ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp']:
+            # For images
+            return send_file(
+                file_path,
+                mimetype=f'image/{file_ext[1:]}',
+                as_attachment=False
+            )
+        elif file_ext in ['.doc', '.docx']:
+            # For Word documents, serve as download
+            return send_file(
+                file_path,
+                mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                as_attachment=True,
+                download_name=filename
+            )
+        else:
+            # For other files, serve as download
+            return send_file(
+                file_path,
+                as_attachment=True,
+                download_name=filename
+            )
+            
+    except Exception as e:
+        return f"""
+        <html>
+        <head><title>Error</title></head>
+        <body style="background: #1e293b; color: white; font-family: Arial; padding: 2rem;">
+            <h1>Error Loading Document</h1>
+            <p>Error: {str(e)}</p>
+            <a href="/" style="color: #6366f1;">Return to Admin Panel</a>
+        </body>
+        </html>
+        """, 500
 
 @app.route('/api/users', methods=['GET', 'POST'])
 def handle_users():
@@ -1551,11 +1945,14 @@ def handle_users():
         try:
             with conn.cursor() as cursor:
                 if role:
-                    sql = "SELECT * FROM users WHERE role = %s ORDER BY created_at DESC"
-                    cursor.execute(sql, (role,))
+                    # For role-specific queries, exclude pending organizations from regular users
+                    if role == 'organization':
+                        cursor.execute("SELECT * FROM users WHERE role = %s AND NOT username LIKE '#%' ORDER BY created_at DESC", (role,))
+                    else:
+                        cursor.execute("SELECT * FROM users WHERE role = %s ORDER BY created_at DESC", (role,))
                 else:
-                    sql = "SELECT * FROM users ORDER BY created_at DESC"
-                    cursor.execute(sql)
+                    # Get all users except pending organizations (those with # in username)
+                    cursor.execute("SELECT * FROM users WHERE NOT (role = 'organization' AND username LIKE '#%') ORDER BY created_at DESC")
                 users = cursor.fetchall()
                 return jsonify({'success': True, 'data': users})
         except Exception as e:
@@ -1571,12 +1968,17 @@ def handle_users():
                 if not password_hash:
                     return jsonify({'success': False, 'message': 'Password is required'}), 400
                     
+                # For new users, ensure username doesn't have # unless it's a pending organization
+                username = data.get('email').split('@')[0]
+                if data.get('role') == 'organization' and data.get('is_pending'):
+                    username = '#' + username
+                
                 cursor.execute("""
                     INSERT INTO users 
                     (username, email, password_hash, first_name, last_name, phone, role, created_at, updated_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 """, (
-                    data.get('email').split('@')[0],  # Simple username from email
+                    username,
                     data.get('email'),
                     password_hash,
                     data.get('first_name'),
@@ -1775,6 +2177,9 @@ def run_flask():
     app.run(host='127.0.0.1', port=3000, debug=False, use_reloader=False)
 
 if __name__ == '__main__':
+    # Create uploads directory if it doesn't exist
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    
     # Start Flask in a separate thread
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
@@ -1782,12 +2187,12 @@ if __name__ == '__main__':
     
     # Create and start the webview window
     window = webview.create_window(
-        'Food Donation Admin',
+        'Food Donation Admin - Organization Approval',
         'http://127.0.0.1:3000',
-        width=1200,
-        height=800,
-        min_size=(800, 600),
+        width=1400,
+        height=900,
+        min_size=(1000, 700),
         text_select=True
     )
     
-    webview.start(debug=False)
+    webview.start(debug=True)

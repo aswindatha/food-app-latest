@@ -1,11 +1,16 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:go_router/go_router.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/app_theme.dart';
+import '../../models/conversation.dart';
+import '../../models/user.dart';
+import '../../models/donation.dart';
 
 class AddDonationScreen extends StatefulWidget {
   const AddDonationScreen({super.key});
@@ -24,12 +29,13 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
   String _selectedType = 'FOOD';
   String _selectedUnit = 'kg';
   DateTime _expiryDate = DateTime.now().add(const Duration(hours: 6));
-  DateTime? _pickupTime;
+  DateTime? _cookingTime; // For food items
   String? _imageUrl;
   bool _isLoading = false;
 
   final List<String> _donationTypes = ['FOOD', 'CLOTHES', 'MEDICINE', 'OTHER'];
   final List<String> _units = ['kg', 'pieces', 'liters', 'boxes', 'cans', 'items'];
+  final TextEditingController _customTypeController = TextEditingController();
 
   @override
   void dispose() {
@@ -37,6 +43,7 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
     _descriptionController.dispose();
     _quantityController.dispose();
     _pickupAddressController.dispose();
+    _customTypeController.dispose();
     super.dispose();
   }
 
@@ -72,37 +79,30 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final token = authProvider.token!;
 
-      // Upload image first if selected
-      String? uploadedImageUrl;
-      if (_imageUrl != null && _imageUrl!.isNotEmpty) {
-        final imageFile = File(_imageUrl!);
-        if (await imageFile.exists()) {
-          final uploadResult = await ApiService.uploadImage(
-            token: token,
-            imageFile: imageFile,
-          );
-          if (uploadResult['success'] == true) {
-            uploadedImageUrl = uploadResult['imageUrl'] as String;
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Image upload failed: ${uploadResult['error']}')),
-            );
-            // Continue without image rather than blocking
-          }
-        }
-      }
-
+      // Simple payload without image upload for now
       final donationData = {
         'title': _titleController.text.trim(),
         'description': _descriptionController.text.trim(),
-        'donation_type': _selectedType,
+        'donation_type': _selectedType == 'OTHER' ? _customTypeController.text.trim() : _selectedType,
         'quantity': int.parse(_quantityController.text),
         'unit': _selectedUnit,
-        'expiry_date': _expiryDate.toIso8601String(),
         'pickup_address': _pickupAddressController.text.trim(),
-        'pickup_time': _pickupTime?.toIso8601String(),
-        'image_url': uploadedImageUrl,
+        'pickup_time': DateTime.now().toIso8601String(),
+        'image_url': null,
       };
+
+      // Handle expiry date based on donation type
+      if (_selectedType == 'FOOD' && _cookingTime != null) {
+        // For food items, expiry_date is cooking_time + 1 hour
+        donationData['expiry_date'] = _cookingTime!.add(const Duration(hours: 1)).toIso8601String();
+        donationData['cooking_time'] = _cookingTime!.toIso8601String();
+      } else {
+        // For non-food items, use the editable expiry_date
+        donationData['expiry_date'] = _expiryDate.toIso8601String();
+      }
+
+      print('🚀 Simple donation payload:');
+      print(donationData);
 
       final result = await ApiService.createDonation(
         token: token,
@@ -110,34 +110,30 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
       );
 
       if (result['success']) {
+        print('✅ Donation created successfully!');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Donation created successfully!')),
         );
         
-        // Clear the form
-        _formKey.currentState!.reset();
-        setState(() {
-          _titleController.clear();
-          _descriptionController.clear();
-          _quantityController.clear();
-          _pickupAddressController.clear();
-          _selectedType = 'FOOD';
-          _selectedUnit = 'kg';
-          _expiryDate = DateTime.now().add(const Duration(hours: 6));
-          _pickupTime = null;
-          _imageUrl = null;
-        });
-
         // Navigate back to donations tab
-        DefaultTabController.of(context).animateTo(0);
+        if (mounted) {
+          // Simple navigation to dashboard
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            '/dashboard',
+            (route) => false,
+          );
+        }
       } else {
+        print('❌ Donation creation failed!');
+        print('Error: ${result['error']}');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result['error'] ?? 'Failed to create donation')),
         );
       }
     } catch (e) {
+      print('💥 Simple error: ${e.toString()}');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('An error occurred')),
+        SnackBar(content: Text('Error: ${e.toString()}')),
       );
     } finally {
       setState(() {
@@ -180,6 +176,10 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
               const SizedBox(height: 16),
               _buildTypeDropdown(),
               const SizedBox(height: 16),
+              if (_selectedType == 'OTHER') ...[
+                _buildCustomTypeField(),
+                const SizedBox(height: 16),
+              ],
               Row(
                 children: [
                   Expanded(child: _buildQuantityField()),
@@ -192,9 +192,21 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
               // Timing Information
               _buildSectionHeader('Timing Information'),
               const SizedBox(height: 16),
-              _buildExpiryDatePicker(),
-              const SizedBox(height: 16),
-              _buildPickupTimePicker(),
+              
+              // Show cooking time for food items, expiry date picker for others
+              if (_selectedType == 'FOOD') ...[
+                _buildCookingTimePicker(),
+                const SizedBox(height: 16),
+              ],
+              
+              // Show editable expiry date for non-food items
+              if (_selectedType != 'FOOD') ...[
+                _buildExpiryDatePicker(),
+                const SizedBox(height: 16),
+              ],
+              
+              // Show expiry time (non-editable) and remove pickup time picker
+              _buildExpiryTimeDisplay(),
               const SizedBox(height: 24),
               
               // Pickup Location
@@ -237,10 +249,23 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.file(
-                    File(_imageUrl!),
-                    fit: BoxFit.cover,
-                  ),
+                  child: kIsWeb
+                      ? Image.network(
+                          _imageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, _) {
+                            return Container(
+                              color: Colors.grey[300],
+                              child: const Center(
+                                child: Icon(Icons.error, color: Colors.grey),
+                              ),
+                            );
+                          },
+                        )
+                      : Image.file(
+                          File(_imageUrl!),
+                          fit: BoxFit.cover,
+                        ),
                 ),
                 Positioned(
                   top: 8,
@@ -322,6 +347,10 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
       onChanged: (value) {
         setState(() {
           _selectedType = value!;
+          // Reset cooking time when type changes
+          if (_selectedType != 'FOOD') {
+            _cookingTime = null;
+          }
         });
       },
     ).animate().fadeIn().slideX();
@@ -370,71 +399,88 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
     ).animate().fadeIn().slideX();
   }
 
-  Widget _buildExpiryDatePicker() {
-    return InkWell(
-      onTap: () async {
-        final date = await showDatePicker(
-          context: context,
-          initialDate: _expiryDate,
-          firstDate: DateTime.now(),
-          lastDate: DateTime.now().add(const Duration(days: 365)),
-        );
-        if (date != null) {
-          setState(() {
-            _expiryDate = date;
-          });
-        }
-      },
-      child: InputDecorator(
-        decoration: const InputDecoration(
-          labelText: 'Expiry Date *',
-          border: OutlineInputBorder(),
-          suffixIcon: Icon(Icons.calendar_today),
-        ),
-        child: Text(
-          '${_expiryDate.day}/${_expiryDate.month}/${_expiryDate.year}',
-        ),
+  Widget _buildExpiryTimeDisplay() {
+    String expiryDisplay;
+    
+    if (_selectedType == 'FOOD' && _cookingTime != null) {
+      // For food items, expiry is 1 hour after cooking time
+      final expiryTime = _cookingTime!.add(const Duration(hours: 1));
+      expiryDisplay = '${expiryTime.day}/${expiryTime.month}/${expiryTime.year} ${expiryTime.hour}:${expiryTime.minute.toString().padLeft(2, '0')}';
+    } else {
+      // For non-food items, show current expiry date
+      expiryDisplay = '${_expiryDate.day}/${_expiryDate.month}/${_expiryDate.year}';
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey[300]!),
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.grey[50],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _selectedType == 'FOOD' ? 'Expiry Time (1 hour after cooking)' : 'Expiry Date',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.primaryColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            expiryDisplay,
+            style: const TextStyle(
+              fontSize: 16,
+              color: Colors.black87,
+            ),
+          ),
+        ],
       ),
     ).animate().fadeIn().slideX();
   }
 
-  Widget _buildPickupTimePicker() {
+  Widget _buildCookingTimePicker() {
     return InkWell(
       onTap: () async {
-        final time = await showDatePicker(
+        final date = await showDatePicker(
           context: context,
-          initialDate: _pickupTime ?? DateTime.now().add(const Duration(hours: 2)),
+          initialDate: _cookingTime ?? DateTime.now(),
           firstDate: DateTime.now(),
-          lastDate: _expiryDate,
+          lastDate: DateTime.now().add(const Duration(days: 365)),
         );
-        if (time != null) {
+        if (date != null) {
           final timeOfDay = await showTimePicker(
             context: context,
-            initialTime: TimeOfDay.fromDateTime(time),
+            initialTime: TimeOfDay.fromDateTime(date),
           );
           if (timeOfDay != null) {
             setState(() {
-              _pickupTime = DateTime(
-                time.year,
-                time.month,
-                time.day,
+              _cookingTime = DateTime(
+                date.year,
+                date.month,
+                date.day,
                 timeOfDay.hour,
                 timeOfDay.minute,
               );
+              // Auto-update expiry date to 1 hour after cooking time
+              _expiryDate = _cookingTime!.add(const Duration(hours: 1));
             });
           }
         }
       },
       child: InputDecorator(
         decoration: const InputDecoration(
-          labelText: 'Preferred Pickup Time',
+          labelText: 'Cooking Time *',
           border: OutlineInputBorder(),
-          suffixIcon: Icon(Icons.schedule),
-          hintText: 'Select pickup time (optional)',
+          suffixIcon: Icon(Icons.access_time),
+          hintText: 'Select cooking time',
         ),
         child: Text(
-          _pickupTime != null
-              ? '${_pickupTime!.day}/${_pickupTime!.month}/${_pickupTime!.year} ${_pickupTime!.hour}:${_pickupTime!.minute.toString().padLeft(2, '0')}'
+          _cookingTime != null
+              ? '${_cookingTime!.day}/${_cookingTime!.month}/${_cookingTime!.year} ${_cookingTime!.hour}:${_cookingTime!.minute.toString().padLeft(2, '0')}'
               : 'Not specified',
         ),
       ),
@@ -456,6 +502,64 @@ class _AddDonationScreenState extends State<AddDonationScreen> {
         }
         return null;
       },
+    ).animate().fadeIn().slideX();
+  }
+
+  Widget _buildCustomTypeField() {
+    return TextFormField(
+      controller: _customTypeController,
+      decoration: const InputDecoration(
+        labelText: 'Custom Type *',
+        hintText: 'Enter donation type',
+        border: OutlineInputBorder(),
+      ),
+      validator: (value) {
+        if (_selectedType == 'OTHER' && (value == null || value.trim().isEmpty)) {
+          return 'Please enter a custom type';
+        }
+        return null;
+      },
+    ).animate().fadeIn().slideX();
+  }
+
+  Widget _buildExpiryDatePicker() {
+    return InkWell(
+      onTap: () async {
+        final date = await showDatePicker(
+          context: context,
+          initialDate: _expiryDate,
+          firstDate: DateTime.now(),
+          lastDate: DateTime.now().add(const Duration(days: 365)),
+        );
+        if (date != null) {
+          final timeOfDay = await showTimePicker(
+            context: context,
+            initialTime: TimeOfDay.fromDateTime(date),
+          );
+          if (timeOfDay != null) {
+            setState(() {
+              _expiryDate = DateTime(
+                date.year,
+                date.month,
+                date.day,
+                timeOfDay.hour,
+                timeOfDay.minute,
+              );
+            });
+          }
+        }
+      },
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          labelText: 'Expiry Date & Time *',
+          border: OutlineInputBorder(),
+          suffixIcon: Icon(Icons.calendar_today),
+          hintText: 'Select expiry date and time',
+        ),
+        child: Text(
+          '${_expiryDate.day}/${_expiryDate.month}/${_expiryDate.year} ${_expiryDate.hour}:${_expiryDate.minute.toString().padLeft(2, '0')}',
+        ),
+      ),
     ).animate().fadeIn().slideX();
   }
 

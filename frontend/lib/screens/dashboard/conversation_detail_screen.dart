@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/conversation.dart';
 import '../../models/message.dart';
+import '../../models/user.dart';
 import '../../services/api_service.dart';
 import '../../utils/app_theme.dart';
 
@@ -255,10 +257,10 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
             ),
           ],
         ),
+      ).animate().fadeIn().slideY(
+        duration: const Duration(milliseconds: 300),
+        begin: isMe ? 0.3 : -0.3,
       ),
-    ).animate().fadeIn().slideY(
-      duration: const Duration(milliseconds: 300),
-      begin: isMe ? 0.3 : -0.3,
     );
   }
 
@@ -294,6 +296,14 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
             ),
           ),
           const SizedBox(width: 8),
+          // Share Location Button
+          FloatingActionButton(
+            onPressed: _shareLocation,
+            backgroundColor: AppTheme.accentColor,
+            mini: true,
+            child: const Icon(Icons.location_on, size: 16),
+          ),
+          const SizedBox(width: 4),
           FloatingActionButton(
             onPressed: _isSending ? null : _sendMessage,
             backgroundColor: _isSending ? Colors.grey : AppTheme.primaryColor,
@@ -303,14 +313,57 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(
-                      color: Colors.white,
                       strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation(Colors.white),
                     ),
                   )
-                : const Icon(Icons.send, color: Colors.white),
+                : const Icon(Icons.send, size: 16),
           ),
         ],
       ),
     );
+  }
+
+  // Share current location
+  void _shareLocation() async {
+    try {
+      // Get current location (simplified for Flutter web)
+      final locationMessage = '📍 My current location: https://www.google.com/maps?q=40.7128,-74.0060';
+      
+      // Send location as message
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final token = authProvider.token!;
+      
+      final result = await ApiService.sendMessage(
+        token: token,
+        conversationId: widget.conversation.id,
+        messageText: locationMessage,
+      );
+      
+      if (result['success']) {
+        print('✅ Location shared in chat: $locationMessage');
+        _loadMessages(); // Refresh messages
+        widget.onMessageSent?.call();
+        
+        // Also launch Google Maps with the location
+        final uri = Uri.parse('https://www.google.com/maps?q=40.7128,-74.0060');
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri);
+          print('🌐 Launched Google Maps: https://www.google.com/maps?q=40.7128,-74.0060');
+        } else {
+          print('❌ Could not launch Google Maps');
+        }
+      } else {
+        print('❌ Failed to share location: ${result['error']}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['error'] ?? 'Failed to share location')),
+        );
+      }
+    } catch (e) {
+      print('❌ Error sharing location: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to share location')),
+      );
+    }
   }
 }

@@ -12,13 +12,34 @@ const generateToken = (id, role) => {
 
 const register = async (req, res) => {
   try {
-    const { username, email, password, first_name, last_name, role } = req.body;
+    const { 
+      username, 
+      email, 
+      password, 
+      first_name, 
+      last_name, 
+      role,
+      address,
+      phone,
+      document_path,
+      latitude,
+      longitude
+    } = req.body;
 
     // Validate required fields
     if (!username || !email || !password || !first_name || !last_name || !role) {
       return res.status(400).json({
         error: 'All fields are required: username, email, password, first_name, last_name, role'
       });
+    }
+
+    // Validate organization-specific fields
+    if (role === 'organization') {
+      if (!address || !phone || !document_path || !latitude || !longitude) {
+        return res.status(400).json({
+          error: 'Organization registration requires: address, phone, document_path, latitude, longitude'
+        });
+      }
     }
 
     // Check if user already exists
@@ -37,15 +58,24 @@ const register = async (req, res) => {
       });
     }
 
-    // Create new user
-    const user = await User.create({
+    // Create new user with optional organization fields
+    const userData = {
       username,
       email,
       password_hash: password, // Will be hashed by the model hook
       first_name,
       last_name,
       role
-    });
+    };
+
+    // Add organization-specific fields if provided
+    if (address) userData.address = address;
+    if (phone) userData.phone = phone;
+    if (document_path) userData.document_path = document_path;
+    if (latitude) userData.latitude = latitude;
+    if (longitude) userData.longitude = longitude;
+
+    const user = await User.create(userData);
 
     // Generate token
     const token = generateToken(user.id, user.role);

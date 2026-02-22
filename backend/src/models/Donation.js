@@ -77,6 +77,11 @@ const Donation = sequelize.define('Donation', {
     type: DataTypes.DATE,
     allowNull: true,
   },
+  cooking_time: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'For food items, the time when food was cooked',
+  },
   status: {
     type: DataTypes.STRING(20),
     defaultValue: 'available',

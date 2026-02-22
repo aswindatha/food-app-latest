@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'dart:io';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
-import '../../models/donation.dart';
 import '../../models/conversation.dart';
 import '../../models/user.dart';
+import '../../models/donation.dart';
 import '../../services/api_service.dart';
 import '../../utils/app_theme.dart';
 import 'add_donation_screen.dart';
 import 'chat_screen.dart';
 import 'edit_donation_screen.dart';
-import 'conversation_detail_screen.dart';
 
 class DonorDashboardNew extends StatefulWidget {
   const DonorDashboardNew({super.key});
@@ -46,8 +45,8 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
           )
-        : Image.file(
-            File(fullUrl),
+        : Image.network(
+            fullUrl,
             height: 180,
             width: 300,
             fit: BoxFit.cover,
@@ -577,7 +576,7 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
 
     // Group donations by status
     final currentDonations = _donations.where((d) => d.isCurrent).toList();
-    final donatedDonations = _donations.where((d) => d.isDelivered || d.status == 'in_transit').toList();
+    final donatedDonations = _donations.where((d) => (d.isDelivered || d.status == 'in_transit') && !d.isExpired).toList();
     final expiredDonations = _donations.where((d) => d.isExpired).toList();
 
     return RefreshIndicator(
@@ -736,9 +735,9 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
         // Chat with Organization button
         if (donation.organization != null)
           ElevatedButton.icon(
-            onPressed: () => _startChat(donation.organization!, 'organization'),
-            icon: const Icon(Icons.chat, size: 16),
-            label: const Text('Chat Org'),
+            onPressed: () => _openOrganizationLocation(donation.organization!),
+            icon: const Icon(Icons.location_on, size: 16),
+            label: const Text('View Org Location'),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.primaryColor,
               foregroundColor: Colors.white,
@@ -746,106 +745,9 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
           ),
         if (donation.organization != null) const SizedBox(width: 8),
         
-        // Chat with Volunteer button/dropdown
-        if (donation.volunteerRequests != null && donation.volunteerRequests!.isNotEmpty)
-          _buildVolunteerChatDropdown(donation)
-        else if (donation.volunteer != null)
-          ElevatedButton.icon(
-            onPressed: () => _startChat(donation.volunteer!, 'volunteer'),
-            icon: const Icon(Icons.chat, size: 16),
-            label: const Text('Chat Volunteer'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primaryColor,
-              foregroundColor: Colors.white,
-            ),
-          )
-        else
-          ElevatedButton.icon(
-            onPressed: null, // Disabled when no volunteer
-            icon: const Icon(Icons.chat, size: 16),
-            label: const Text('No Volunteer'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.grey,
-              foregroundColor: Colors.white70,
-            ),
-          ),
+        // Only Chat with Organization button - removed volunteer chat buttons
       ],
     );
-  }
-
-  Widget _buildVolunteerChatDropdown(Donation donation) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: AppTheme.primaryColor),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: DropdownButton<String>(
-        hint: const Text('Chat Volunteer'),
-        value: null,
-        isExpanded: false,
-        underline: const SizedBox(),
-        items: donation.volunteerRequests!.map((request) {
-          if (request.volunteer != null) {
-            return DropdownMenuItem<String>(
-              value: request.volunteer!.id.toString(),
-              child: Row(
-                children: [
-                  const Icon(Icons.chat, size: 16),
-                  const SizedBox(width: 8),
-                  Text('Chat ${request.volunteer!.firstName}'),
-                ],
-              ),
-            );
-          }
-          return null;
-        }).where((item) => item != null).cast<DropdownMenuItem<String>>().toList(),
-        onChanged: (value) {
-          if (value != null) {
-            final volunteerId = int.parse(value);
-            final volunteer = donation.volunteerRequests!
-                .firstWhere((req) => req.volunteer?.id == volunteerId)
-                .volunteer;
-            if (volunteer != null) {
-              _startChat(volunteer, 'volunteer');
-            }
-          }
-        },
-      ),
-    );
-  }
-
-  Future<void> _startChat(User user, String userType) async {
-    try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final token = authProvider.token!;
-
-      final result = await ApiService.createConversation(
-        token: token,
-        participant2Id: user.id,
-        participant2Type: userType,
-      );
-
-      if (result['success']) {
-        // Navigate to conversation detail
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ConversationDetailScreen(
-              conversation: result['conversation'],
-              onMessageSent: _loadData,
-            ),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['error'] ?? 'Failed to start conversation')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('An error occurred')),
-      );
-    }
   }
 
   Color _getStatusColor(String status) {
@@ -859,5 +761,91 @@ class _DonorDashboardNewState extends State<DonorDashboardNew> with SingleTicker
       default:
         return Colors.grey;
     }
+  }
+
+  // Open organization location in Google Maps
+  void _openOrganizationLocation(User organization) async {
+    final address = organization.address ?? '';
+    final latitude = organization.latitude;
+    final longitude = organization.longitude;
+    
+    // Print location data to terminal
+    print('📍 Organization Location Data:');
+    print('   Organization ID: ${organization.id}');
+    print('   Organization Name: ${organization.firstName} ${organization.lastName}');
+    print('   Address: $address');
+    print('   Email: ${organization.email}');
+    print('   Phone: ${organization.phone}');
+    print('   Role: ${organization.role}');
+    print('   Latitude: $latitude');
+    print('   Longitude: $longitude');
+    
+    // Create Google Maps URL with coordinates if available, otherwise use address
+    String mapsUrl;
+    if (latitude != null && longitude != null) {
+      mapsUrl = 'https://www.google.com/maps?q=$latitude,$longitude';
+      print('   🗺️ Opening Google Maps with coordinates: $mapsUrl');
+    } else if (address.isNotEmpty) {
+      mapsUrl = 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}';
+      print('   🔍 Opening Google Maps with address: $mapsUrl');
+    } else {
+      print('❌ No location data available');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Organization location not available')),
+      );
+      return;
+    }
+    
+    // Show location details and option to open in maps
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Organization Location'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (address.isNotEmpty) ...[
+              const Text('Address:', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(address),
+              const SizedBox(height: 8),
+            ],
+            if (latitude != null && longitude != null) ...[
+              const Text('Coordinates:', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('$latitude, $longitude'),
+              const SizedBox(height: 8),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    // Launch Google Maps URL
+                    final uri = Uri.parse(mapsUrl);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri);
+                      print('🌐 Launched Google Maps: $mapsUrl');
+                    } else {
+                      print('❌ Could not launch Google Maps: $mapsUrl');
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Could not open Google Maps')),
+                      );
+                    }
+                  },
+                  child: const Text('Open in Maps'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

@@ -37,6 +37,68 @@ app.use('/api/admin', adminRoutes);
 // Upload route
 app.post('/api/upload/image', auth, upload.single('image'), uploadImage);
 
+// Organization document upload route (requires authentication)
+app.post('/api/upload/organization-document', auth, upload.single('document'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No document file provided' });
+    }
+
+    // Get project root directory
+    const projectRoot = path.join(__dirname, '..');
+    
+    // Return relative path from project root
+    const relativePath = path.relative(projectRoot, req.file.path);
+    
+    res.status(201).json({
+      message: 'Document uploaded successfully',
+      documentUrl: relativePath,
+      filename: req.file.filename,
+    });
+  } catch (error) {
+    console.error('Error uploading document:', error);
+    res.status(500).json({ message: 'Internal server error', error: error.message });
+  }
+});
+
+// Organization document upload route for registration (no authentication required)
+app.post('/api/upload/registration-document', upload.single('document'), (req, res) => {
+  try {
+    console.log('Registration document upload request received');
+    console.log('File:', req.file);
+    
+    if (!req.file) {
+      console.log('No file provided in request');
+      return res.status(400).json({ 
+        success: false,
+        message: 'No document file provided' 
+      });
+    }
+
+    // Get project root directory
+    const projectRoot = path.join(__dirname, '..');
+    
+    // Return relative path from project root
+    const relativePath = path.relative(projectRoot, req.file.path);
+    
+    console.log('File uploaded successfully:', relativePath);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Document uploaded successfully',
+      documentUrl: relativePath,
+      filename: req.file.filename,
+    });
+  } catch (error) {
+    console.error('Error uploading document:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Internal server error', 
+      error: error.message 
+    });
+  }
+});
+
 // Health check endpoint for mobile app connection testing
 app.get('/api/health', (req, res) => {
   res.status(200).json({

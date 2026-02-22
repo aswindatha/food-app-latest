@@ -1,6 +1,9 @@
 const path = require('path');
 const upload = require('../middleware/upload');
 
+// Get project root directory
+const projectRoot = path.join(__dirname, '..', '..');
+
 // Upload image and return URL
 const uploadImage = async (req, res) => {
   try {
@@ -8,12 +11,12 @@ const uploadImage = async (req, res) => {
       return res.status(400).json({ message: 'No image file provided' });
     }
 
-    // Return relative URL that can be served statically
-    const imageUrl = `/assets/${req.file.filename}`;
+    // Return relative path from project root
+    const relativePath = path.relative(projectRoot, req.file.path);
     
     res.status(201).json({
       message: 'Image uploaded successfully',
-      imageUrl,
+      imageUrl: relativePath,
       filename: req.file.filename,
     });
   } catch (error) {

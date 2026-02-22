@@ -11,6 +11,7 @@ class Donation {
   final int quantity;
   final String unit;
   final DateTime expiryDate;
+  final DateTime? cookingTime; // For food items
   final String pickupAddress;
   final DateTime? pickupTime;
   final String status;
@@ -34,6 +35,7 @@ class Donation {
     required this.quantity,
     required this.unit,
     required this.expiryDate,
+    this.cookingTime,
     required this.pickupAddress,
     this.pickupTime,
     required this.status,
@@ -63,6 +65,29 @@ class Donation {
       }
     }
     
+    // Parse user objects with error handling
+    User? donor;
+    User? volunteer;
+    User? organization;
+    
+    try {
+      donor = json['donor'] != null ? User.fromJson(json['donor']) : null;
+    } catch (e) {
+      print('Error parsing donor: $e');
+    }
+    
+    try {
+      volunteer = json['volunteer'] != null ? User.fromJson(json['volunteer']) : null;
+    } catch (e) {
+      print('Error parsing volunteer: $e');
+    }
+    
+    try {
+      organization = json['organization'] != null ? User.fromJson(json['organization']) : null;
+    } catch (e) {
+      print('Error parsing organization: $e');
+    }
+    
     return Donation(
       id: json['id'] ?? 0,
       donorId: json['donor_id'] ?? 0,
@@ -72,6 +97,7 @@ class Donation {
       quantity: json['quantity'] ?? 0,
       unit: json['unit'] ?? '',
       expiryDate: DateTime.parse(json['expiry_date'] ?? DateTime.now().toIso8601String()),
+      cookingTime: json['cooking_time'] != null ? DateTime.parse(json['cooking_time']) : null,
       pickupAddress: json['pickup_address'] ?? '',
       pickupTime: json['pickup_time'] != null ? DateTime.parse(json['pickup_time']) : null,
       status: json['status'] ?? '',
@@ -80,9 +106,9 @@ class Donation {
       imageUrl: json['image_url'],
       createdAt: DateTime.parse(json['created_at'] ?? json['createdAt'] ?? DateTime.now().toIso8601String()),
       updatedAt: DateTime.parse(json['updated_at'] ?? json['updatedAt'] ?? DateTime.now().toIso8601String()),
-      donor: json['donor'] != null ? User.fromJson(json['donor']) : null,
-      volunteer: json['volunteer'] != null ? User.fromJson(json['volunteer']) : null,
-      organization: json['organization'] != null ? User.fromJson(json['organization']) : null,
+      donor: donor,
+      volunteer: volunteer,
+      organization: organization,
       volunteerRequests: volunteerRequestsList.isEmpty ? null : volunteerRequestsList,
       reviews: json['reviews'] != null && json['reviews'] is List 
           ? (json['reviews'] as List).map((r) {
@@ -107,6 +133,7 @@ class Donation {
       'quantity': quantity,
       'unit': unit,
       'expiry_date': expiryDate.toIso8601String(),
+      'cooking_time': cookingTime?.toIso8601String(),
       'pickup_address': pickupAddress,
       'pickup_time': pickupTime?.toIso8601String(),
       'status': status,
@@ -115,6 +142,11 @@ class Donation {
       'image_url': imageUrl,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
+      'donor': donor?.toJson(),
+      'volunteer': volunteer?.toJson(),
+      'organization': organization?.toJson(),
+      'volunteer_requests': volunteerRequests?.map((r) => r.toJson()).toList(),
+      'reviews': reviews?.map((r) => r.toJson()).toList(),
     };
   }
 
@@ -127,6 +159,7 @@ class Donation {
     int? quantity,
     String? unit,
     DateTime? expiryDate,
+    DateTime? cookingTime,
     String? pickupAddress,
     DateTime? pickupTime,
     String? status,
@@ -169,7 +202,12 @@ class Donation {
   bool get isEditable => status == 'available' && !isExpired;
   bool get isExpired {
     // Check if status is expired or if expiry date has passed
-    return status == 'expired' || expiryDate.isBefore(DateTime.now());
+    // expiry_date is always correct (for food items it's cooking_time + 1 hour)
+    if (status == 'expired') {
+      return true;
+    }
+    
+    return expiryDate.isBefore(DateTime.now());
   }
   bool get isDelivered => status == 'completed';
   bool get isCurrent => status == 'available' && !isExpired;

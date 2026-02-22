@@ -9,7 +9,7 @@ router.use(auth);
 // Create a new donation
 router.post('/', donationController.createDonation);
 
-// Get all donations for the authenticated donor
+// Get all donations for authenticated donor
 router.get('/my-donations', donationController.getDonorDonations);
 
 // Get all available donations (for volunteers and organizations)
@@ -20,6 +20,9 @@ router.get('/:id', donationController.getDonationById);
 
 // Update a donation
 router.put('/:id', donationController.updateDonation);
+
+// Update donation status
+router.put('/:id/status', donationController.updateDonationStatus);
 
 // Delete a donation
 router.delete('/:id', donationController.deleteDonation);

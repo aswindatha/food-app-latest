@@ -2,7 +2,10 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Ensure assets directory exists
+// Get project root directory (go up from src/middleware to project root)
+const projectRoot = path.join(__dirname, '..', '..');
+
+// Ensure assets directory exists in backend/src/assets
 const assetsDir = path.join(__dirname, '..', 'assets');
 if (!fs.existsSync(assetsDir)) {
   fs.mkdirSync(assetsDir, { recursive: true });
@@ -18,7 +21,18 @@ initUuid();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, assetsDir);
+    // For organization documents, create folder with username
+    let uploadPath = assetsDir;
+    
+    if (req.body && req.body.username && req.body.isOrganizationDocument) {
+      const userFolder = path.join(assetsDir, req.body.username);
+      if (!fs.existsSync(userFolder)) {
+        fs.mkdirSync(userFolder, { recursive: true });
+      }
+      uploadPath = userFolder;
+    }
+    
+    cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
     // Generate unique filename with original extension
@@ -31,13 +45,25 @@ const storage = multer.diskStorage({
 const fileFilter = (req, file, cb) => {
   console.log('File mimetype:', file.mimetype);
   console.log('File originalname:', file.originalname);
+  console.log('Request URL:', req.originalUrl);
+  console.log('Request body:', req.body);
   
-  // Accept only image files
-  if (file.mimetype.startsWith('image/')) {
+  // Accept image files and any document files for organizations
+  if (req.body && req.body.isOrganizationDocument) {
+    // Accept any file type for organization documents
+    console.log('Accepting organization document');
+    cb(null, true);
+  } else if (req.originalUrl && req.originalUrl.includes('/registration-document')) {
+    // Accept any file type for registration documents
+    console.log('Accepting registration document');
+    cb(null, true);
+  } else if (file.mimetype.startsWith('image/')) {
+    // Accept image files
+    console.log('Accepting image file');
     cb(null, true);
   } else {
-    console.log('Rejected file - mimetype does not start with image/');
-    cb(new Error('Only image files are allowed'), false);
+    console.log('Rejected file - not an image or organization document');
+    cb(new Error('Only image files and organization documents are allowed'), false);
   }
 };
 
@@ -45,7 +71,7 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 10 * 1024 * 1024, // 10MB limit for documents
   },
 });
 

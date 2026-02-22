@@ -116,6 +116,11 @@ class AuthService {
     required String firstName,
     required String lastName,
     required String role,
+    String? address,
+    String? phone,
+    String? documentPath,
+    double? latitude,
+    double? longitude,
   }) async {
     try {
       final result = await ApiService.register(
@@ -125,6 +130,11 @@ class AuthService {
         firstName: firstName,
         lastName: lastName,
         role: role,
+        address: address,
+        phone: phone,
+        documentPath: documentPath,
+        latitude: latitude,
+        longitude: longitude,
       );
 
       if (result['success'] && result['user'] != null && result['token'] != null) {

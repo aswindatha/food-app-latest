@@ -75,7 +75,37 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final token = authProvider.token!;
+      final currentUserId = authProvider.user!.id;
 
+      // Check if conversation already exists
+      Conversation? existingConversation;
+      try {
+        existingConversation = _conversations.firstWhere(
+          (conv) => 
+            (conv.participant1Id == currentUserId && conv.participant2Id == user.id) ||
+            (conv.participant1Id == user.id && conv.participant2Id == currentUserId),
+        );
+      } catch (e) {
+        // No existing conversation found
+        existingConversation = null;
+      }
+
+      if (existingConversation != null) {
+        // Conversation exists, navigate to it
+        print('✅ Opening existing conversation with ${user.firstName}');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ConversationDetailScreen(
+              conversation: existingConversation!,
+              onMessageSent: _loadData,
+            ),
+          ),
+        );
+        return;
+      }
+
+      // Create new conversation if none exists
       final result = await ApiService.createConversation(
         token: token,
         participant2Id: user.id,
@@ -83,6 +113,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
 
       if (result['success']) {
+        print('✅ Created new conversation with ${user.firstName}');
         // Navigate to conversation detail
         Navigator.push(
           context,

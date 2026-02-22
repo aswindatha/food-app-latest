@@ -5,10 +5,13 @@ import 'package:go_router/go_router.dart';
 import 'providers/auth_provider.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/registration_screen.dart';
+import 'screens/auth/organization_verification_screen.dart';
 import 'screens/dashboard/donor_dashboard_new.dart';
 import 'screens/dashboard/volunteer_dashboard.dart';
 import 'screens/dashboard/organization_dashboard.dart';
 import 'screens/dashboard/admin_dashboard.dart';
+import 'screens/admin/organization_verification_admin_screen.dart';
+import 'screens/dashboard/chat_screen.dart';
 import 'screens/splash_screen.dart';
 import 'utils/app_theme.dart';
 
@@ -54,6 +57,14 @@ class FoodApp extends StatelessWidget {
         builder: (context, state) => const RegistrationScreen(),
       ),
       GoRoute(
+        path: '/organization-verification',
+        builder: (context, state) => const OrganizationVerificationScreen(),
+      ),
+      GoRoute(
+        path: '/admin/organization-verification',
+        builder: (context, state) => const OrganizationVerificationAdminScreen(),
+      ),
+      GoRoute(
         path: '/dashboard',
         builder: (context, state) {
           final user = context.read<AuthProvider>().user;
@@ -67,10 +78,28 @@ class FoodApp extends StatelessWidget {
             case 'volunteer':
               return const VolunteerDashboard();
             case 'organization':
+              // Check if organization is verified
+              print('🔍 Router: Organization role detected');
+              print('🔍 Router: Username: ${user.username}');
+              print('🔍 Router: Username starts with #: ${user.username.startsWith('#')}');
+              if (user.username.startsWith('#') == true) {
+                print('🔍 Router: Redirecting to verification page');
+                return const OrganizationVerificationScreen();
+              }
+              print('🔍 Router: Redirecting to organization dashboard');
               return const OrganizationDashboard();
             default:
               return const DonorDashboardNew();
           }
+        },
+      ),
+      GoRoute(
+        path: '/chat',
+        builder: (context, state) {
+          final user = context.read<AuthProvider>().user;
+          if (user == null) return const LoginScreen();
+          
+          return ChatScreen();
         },
       ),
     ],

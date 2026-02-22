@@ -6,6 +6,8 @@ class User {
   final String lastName;
   final String? phone;
   final String? address;
+  final double? latitude;
+  final double? longitude;
   final String role;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -18,6 +20,8 @@ class User {
     required this.lastName,
     this.phone,
     this.address,
+    this.latitude,
+    this.longitude,
     required this.role,
     required this.createdAt,
     required this.updatedAt,
@@ -32,6 +36,8 @@ class User {
       lastName: json['last_name'] ?? '',
       phone: json['phone'],
       address: json['address'],
+      latitude: json['latitude'] != null ? double.tryParse(json['latitude'].toString()) : null,
+      longitude: json['longitude'] != null ? double.tryParse(json['longitude'].toString()) : null,
       role: json['role'] ?? '',
       createdAt: DateTime.parse(json['created_at'] ?? json['createdAt'] ?? DateTime.now().toIso8601String()),
       updatedAt: DateTime.parse(json['updated_at'] ?? json['updatedAt'] ?? DateTime.now().toIso8601String()),
@@ -47,6 +53,8 @@ class User {
       'last_name': lastName,
       'phone': phone,
       'address': address,
+      'latitude': latitude,
+      'longitude': longitude,
       'role': role,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),

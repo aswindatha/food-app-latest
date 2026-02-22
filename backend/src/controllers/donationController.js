@@ -11,7 +11,7 @@ const updateExpiredDonations = async () => {
       { status: 'expired' },
       {
         where: {
-          status: 'available',
+          status: ['available', 'in_transit', 'claiming'],
           expiry_date: {
             [require('sequelize').Op.lt]: new Date()
           }
@@ -38,6 +38,7 @@ const createDonation = async (req, res) => {
       quantity,
       unit,
       expiry_date,
+      cooking_time,
       pickup_address,
       pickup_time,
       image_url
@@ -56,6 +57,7 @@ const createDonation = async (req, res) => {
       quantity,
       unit,
       expiry_date,
+      cooking_time,
       pickup_address,
       pickup_time,
       image_url,
@@ -87,7 +89,10 @@ const getDonorDonations = async (req, res) => {
       include: [
         { model: User, as: 'donor', attributes: ['id', 'username', 'first_name', 'last_name'] },
         { model: User, as: 'volunteer', attributes: ['id', 'username', 'first_name', 'last_name'] },
-        { model: User, as: 'organization', attributes: ['id', 'username', 'first_name', 'last_name'] },
+        { 
+          model: User, as: 'organization', 
+          attributes: ['id', 'username', 'first_name', 'last_name', 'email', 'phone', 'address', 'latitude', 'longitude', 'role']
+        },
         { 
           model: VolunteerRequest, 
           as: 'volunteerRequests',
@@ -118,7 +123,10 @@ const getDonationById = async (req, res) => {
       include: [
         { model: User, as: 'donor', attributes: ['id', 'username', 'first_name', 'last_name'] },
         { model: User, as: 'volunteer', attributes: ['id', 'username', 'first_name', 'last_name'] },
-        { model: User, as: 'organization', attributes: ['id', 'username', 'first_name', 'last_name'] }
+        { 
+          model: User, as: 'organization', 
+          attributes: ['id', 'username', 'first_name', 'last_name', 'email', 'phone', 'address', 'latitude', 'longitude', 'role']
+        }
       ]
     });
 
@@ -251,6 +259,40 @@ const getAvailableDonations = async (req, res) => {
   }
 };
 
+// Update donation status
+const updateDonationStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status || !['available', 'claiming', 'in_transit', 'completed', 'cancelled', 'expired'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+
+    const donation = await Donation.findByPk(id);
+
+    if (!donation) {
+      return res.status(404).json({ message: 'Donation not found' });
+    }
+
+    // Check if user is authorized to update this donation
+    if (donation.donor_id !== req.user.id && donation.organization_id !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to update this donation' });
+    }
+
+    await donation.update({ status });
+
+    res.json({ 
+      success: true,
+      message: 'Donation status updated successfully',
+      donation: await Donation.findByPk(id)
+    });
+  } catch (error) {
+    console.error('Error updating donation status:', error);
+    res.status(500).json({ message: 'Internal server error', error: error.message });
+  }
+};
+
 // Assign volunteer to donation
 const assignVolunteer = async (req, res) => {
   try {
@@ -311,10 +353,11 @@ const markAsDonated = async (req, res) => {
 module.exports = {
   createDonation,
   getDonorDonations,
+  getAvailableDonations,
   getDonationById,
   updateDonation,
+  updateDonationStatus,
   deleteDonation,
-  getAvailableDonations,
   assignVolunteer,
   markAsDonated,
 };
